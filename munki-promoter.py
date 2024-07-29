@@ -369,12 +369,12 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 		item_name = item["name"]
 		item_metadata = item["_metadata"]
 		item_version = item["version"]
+		item_catalogs = item["catalogs"]
 	except Exception as e:
-		logging.error(f"File {item_path} is missing expected keys.")
-		logging.error(e, exc_info=True)
+		logging.error(f"File {item_path} is missing expected keys.", exc_info=True)
 		sys.exit(1)
 	# check if eligable for promotion based on current catalogs
-	if set(item["catalogs"]) == set(promote_from): # convert to set so order doesn't matter
+	if set(item_catalogs) == set(promote_from): # convert to set so order doesn't matter
 		# check if custom item
 		if item_name in custom_items and type(custom_items[item_name]) == dict:
 			if "days_in_catalog" in custom_items[item_name]:
