@@ -63,7 +63,7 @@ def white_space_pad_strings(l):
 	result = [s + (' ' * (maxlen - len(s))) for s in l]
 	return result 
 
-def describe_pomotion(promotion, promote_to, names, versions):
+def describe_promotion(promotion, promote_to, names, versions):
 	result = "\n------------------------------------------------------------------------------------\n"
 	result += f'                        Applying promotion "{promotion}"\n'
 	result += f"   Promoting the catalogs of the following pkgsinfo files to {promote_to}\n"
@@ -485,12 +485,10 @@ def main():
 	if show_list:
 		print_promotions(config, config_path)
 
-	found_items_to_promote = False
 	if promotion:
 		names, versions, preped_promotions, promote_to = prep_single_promotion(promotion, config, munki_path, config_path)
 		if names:
-			found_items_to_promote = True
-			s = describe_pomotion(promotion, promote_to, names, versions)
+			s = describe_promotion(promotion, promote_to, names, versions)
 			if auto or user_confirm(s):
 				# apply changes
 				promote_items(preped_promotions)
@@ -510,11 +508,10 @@ def main():
 	else:
 		names_dict, versions_dict, preped_promotions, promote_tos = prep_all_promotions(config, munki_path, config_path)
 		if len(names_dict) > 0:
-			found_items_to_promote = True
 			s = ""
 			for promotion in config["promotions"]: # present promotions in order of config file
 				if promotion in names_dict:
-					s += describe_pomotion(promotion, promote_tos[promotion], names_dict[promotion], versions_dict[promotion])
+					s += describe_promotion(promotion, promote_tos[promotion], names_dict[promotion], versions_dict[promotion])
 			if auto or user_confirm(s):
 				# apply changes
 				promote_items(preped_promotions)
@@ -535,9 +532,6 @@ def main():
 				logging.info('Ok, aborted..')
 		else:
 			logging.info("No items need to be promoted.")
-
-	if not found_items_to_promote:
-		logging.info("No items need to be promoted.")
 
 if __name__ == '__main__':
 	main()
