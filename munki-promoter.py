@@ -467,15 +467,15 @@ def process_options():
 	parser = optparse.OptionParser()
 	parser.set_usage('Usage: %prog [options]')
 	parser.add_option('--promotion', '-p', dest='promotion',
-						help='Name of the catalog to promote, if only one catalog should be promoted. Defaults to promoting all catalogs. Use --list to see possible values')
+						help='Specifies the name of the promotion to run. If not set, all promotions in the configuration will be run. Use --list to see available promotions.')
 	parser.add_option('--list', '-l', dest='list', action='store_true',
-						help='Get list of possible promotions.')
+						help='Prints the list of possible promotions.')
 	parser.add_option('--munki', '-m', dest='munki_path', default=MUNKI_PATH,
 						help=f'Optional path to the munki pkginfo directory, defaults to {MUNKI_PATH}')
 	parser.add_option('--yaml', '-y', dest='config_file',
-						help=f'Optional path to the configuration yaml file.')
+						help=f'Optional path to the configuration yaml file. Defaults to config.yml if not set. If config.yml does not exist, default configuration will be used.')
 	parser.add_option('--slack', '-s', dest='slack_url',
-						help=f'Optional url for slack webhooks.')
+						help=f'Optional url for Slack webhooks.')
 	parser.add_option('--markdown', dest='markdown_path',
 						help=f'Optional file name to print markdown summary of promotions.')
 	parser.add_option('--auto', '-a', dest='auto', action='store_true',
@@ -505,7 +505,7 @@ def main():
 	if show_list:
 		print_promotions(config, config_path)
 
-	if promotion:
+	elif promotion:
 		names, versions, preped_promotions, promote_to = prep_single_promotion(promotion, config, munki_path, config_path)
 		if names:
 			s = describe_promotion(promotion, promote_to, names, versions)
