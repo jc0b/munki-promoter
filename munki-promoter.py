@@ -399,7 +399,7 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 		if last_edited_date + datetime.timedelta(days=days) < today:
 			# up for promotion!
 			item["catalogs"] = promote_to
-			item["_metadata"]["promoter_edit_date"] = today + datetime.timedelta(days=days)
+			item["_metadata"]["promoter_edit_date"] = today 
 			return item_name, item_version, (item_path, item)
 	return None, None, None
 
