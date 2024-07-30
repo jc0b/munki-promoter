@@ -371,7 +371,6 @@ def prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items,
 def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, item_path):
 	try:
 		item_name = item["name"]
-		item_metadata = item["_metadata"]
 		item_version = item["version"]
 		item_catalogs = item["catalogs"]
 	except Exception as e:
@@ -388,10 +387,14 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 			if "promote_from" in custom_items[item_name] and type(custom_items[item_name]["promote_from"]) == list and len(custom_items[item_name]["promote_from"]) > 0:
 				promote_from = custom_items[item_name]["promote_from"]
 		# check if eligable for promotion based on days
-		if "munki-promoter_edit_date" in item_metadata:
-			last_edited_date = item_metadata["munki-promoter_edit_date"]
+		last_edited_date = datetime.datetime.now()
+		if "_metadata" in item:
+			if "munki-promoter_edit_date" in item["_metadata"]:
+				last_edited_date = item["_metadata"]["munki-promoter_edit_date"]
+			elif "creation_date" in item["_metadata"]:
+				last_edited_date = item["_metadata"]["creation_date"]
 		else:
-			last_edited_date = item_metadata["creation_date"]
+			item["_metadata"] = dict()
 		today = datetime.datetime.now()
 		if last_edited_date + datetime.timedelta(days=days) < today:
 			# up for promotion!
