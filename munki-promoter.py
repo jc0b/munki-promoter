@@ -206,7 +206,7 @@ def send_slack_webhook(slack_url, slack_blocks):
 	resp = urllib.request.urlopen(req, context=ssl.create_default_context(cafile=certifi.where()))
 	response = resp.read()
 	if(resp.status == 200):
-		logging.info("Slack wbhook sent successfully!")
+		logging.info("Slack webhook sent successfully!")
 	else:
 		logging.error(f"Slack webhook could not be sent. HTTP response {resp.status}.")
 		sys.exit(1)
@@ -236,7 +236,7 @@ def setup_slack_blocks():
 		global certifi
 		import certifi
 	except ImportError as e:
-			loggig.error(f"Certifi library could not be loaded.")
+			logging.error(f"Certifi library could not be loaded.")
 			logging.error("You can install the necessary dependencies with 'python3 -m pip install -r requirements.txt'")
 			sys.exit(1)
 	header_block = {"type": "header", "text": {"type": "plain_text", "text": "New items automatically promoted in Munki", "emoji": True}}
