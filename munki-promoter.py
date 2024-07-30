@@ -398,7 +398,6 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 				item["_metadata"]["munki-promoter_edit_date"] = today
 		else:
 			item["_metadata"] = {"munki-promoter_edit_date": today}
-		today = datetime.datetime.now()
 		if last_edited_date + datetime.timedelta(days=days) < today:
 			# up for promotion!
 			item["catalogs"] = promote_to
