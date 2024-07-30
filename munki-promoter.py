@@ -15,11 +15,15 @@ import urllib.parse
 import json
 import ssl
 
-
 DEFAULT_CONFIG = {
-	"catalogs":[{"catalog": "autopkg","promote_to": ["staging"],"days_in_catalog": 1},
-							{"catalog": "staging","promote_to": ["production"],"days_in_catalog": 7}],
-	"ask_stepwise": True}
+	"promotions": {
+		"autopkg": {
+			"promote_to": ["staging", "autopkg"] },
+		"staging": {
+			"promote_from": ["staging", "autopkg"],
+			"promote_to": ["production"] } },
+	"default_days_in_catalog" : 7 }
+
 CONFIG_FILE = "config.yml"
 MUNKI_PATH='/Users/Shared/munki-repo/pkgsinfo'
 
