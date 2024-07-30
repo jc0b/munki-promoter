@@ -387,14 +387,15 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 			if "promote_from" in custom_items[item_name] and type(custom_items[item_name]["promote_from"]) == list and len(custom_items[item_name]["promote_from"]) > 0:
 				promote_from = custom_items[item_name]["promote_from"]
 		# check if eligable for promotion based on days
-		last_edited_date = datetime.datetime.now()
+		today = datetime.datetime.now()
+		last_edited_date = today
 		if "_metadata" in item:
 			if "munki-promoter_edit_date" in item["_metadata"]:
 				last_edited_date = item["_metadata"]["munki-promoter_edit_date"]
 			elif "creation_date" in item["_metadata"]:
 				last_edited_date = item["_metadata"]["creation_date"]
 		else:
-			item["_metadata"] = dict()
+			item["_metadata"] = {"munki-promoter_edit_date": today}
 		today = datetime.datetime.now()
 		if last_edited_date + datetime.timedelta(days=days) < today:
 			# up for promotion!
