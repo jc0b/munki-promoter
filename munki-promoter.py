@@ -394,6 +394,8 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 				last_edited_date = item["_metadata"]["munki-promoter_edit_date"]
 			elif "creation_date" in item["_metadata"]:
 				last_edited_date = item["_metadata"]["creation_date"]
+			else:
+				item["_metadata"]["munki-promoter_edit_date"] = today
 		else:
 			item["_metadata"] = {"munki-promoter_edit_date": today}
 		today = datetime.datetime.now()
