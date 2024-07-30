@@ -467,8 +467,8 @@ def process_options():
 		slack_url = os.environ.get("SLACK_WEBHOOK")
 	# return based on config file option
 	if options.config_file:
-		return options.promotion, options.list, options.munki_path, options.config_file, True, options.slack_url, options.markdown_path, options.auto
-	return options.promotion, options.list, options.munki_path, CONFIG_FILE, False, options.slack_url, options.markdown_path, options.auto
+		return options.promotion, options.list, options.munki_path, options.config_file, True, slack_url, options.markdown_path, options.auto
+	return options.promotion, options.list, options.munki_path, CONFIG_FILE, False, slack_url, options.markdown_path, options.auto
 
 def setup_logging():
 	logging.basicConfig(
