@@ -396,8 +396,11 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 				last_edited_date = item["_metadata"]["creation_date"]
 			else:
 				item["_metadata"]["munki-promoter_edit_date"] = today
+				try_add_metadata(item_path, item)
+
 		else:
 			item["_metadata"] = {"munki-promoter_edit_date": today}
+			try_add_metadata(item_path, item)
 		if last_edited_date + datetime.timedelta(days=days) < today:
 			# up for promotion!
 			item["catalogs"] = promote_to
@@ -426,6 +429,23 @@ def promote_items(preped_promotions):
 			logging.error(f"Could not open file {item_path} in munki directory.")
 			logging.error(e, exc_info=True)
 			sys.exit(1)
+
+def try_add_metadata(item_path, item):
+	try:
+		# open file
+		with open(item_path, "rb+") as fp:
+			try:
+				logging.info(f"Adding missing metadata to file {item_path}")
+				# make sure we are at start of file
+				fp.seek(0)
+				# write to file
+				plistlib.dump(item, fp, fmt=plistlib.FMT_XML)
+				# remove any excess of old file
+				fp.truncate()
+			except Exception as e:
+				logging.warning(f"File {item_path} is missing metadata and this file can not be written to.", exc_info=True)
+	except OSError as e:
+			logging.warning(f"File {item_path} is missing metadata and this file can not be written to.", exc_info=True)
 
 # ----------------------------------------
 #              User input
