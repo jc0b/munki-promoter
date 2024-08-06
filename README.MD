@@ -1,12 +1,10 @@
 # munki-promoter
-`munki-promoter` is a tool for promoting Munki items between catalogs which, when used with CI, can automate Munki promotions for you. You will probably need to fork it and modify it to work with an existing Munki environment.
+`munki-promoter` is a rule-based tool for promoting Munki items between catalogs which, when used with CI, can automate Munki promotions for you. 
 
-You can read more about munki-promoter [here](https://jc0b.computer/posts/munki-promoter-automatic-munki).
+You can read more about `munki-promoter` [here](https://jc0b.computer/posts/munki-promoter-automatic-munki).
 
-## Usage
-`munki-promoter` contains a few default promotions. You can list these with `./munki-promoter.py --list`.
+## Getting started
+To get started with `munki-promoter`, you should read the ["Getting Started" page](https://github.com/jc0b/munki-promoter/wiki/Home) in the wiki.
 
-Then, you can run the migration you want with `./munki-promoter.py --name=<migration_name>`.
+Information about configuring `munki-promoter` can be found in [the configuration documentation](https://github.com/jc0b/munki-promoter/wiki/Supported-Configuration-Keys). [Examples](https://github.com/jc0b/munki-promoter/wiki/Example-Configurations) are also provided.
 
-## Limitations
-This script won't affect items that don't have the `_metadata` key in their pkgsinfo file, such as handmade `nopkg` items.

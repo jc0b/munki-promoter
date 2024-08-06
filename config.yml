@@ -1,0 +1,24 @@
+---
+  promotions:
+    autopkg:
+      promote_to:
+        - "staging"
+        - "autopkg"
+    staging:
+      promote_to:
+        - "production"
+      promote_from:
+        - "autopkg"
+        - "staging"
+      custom_items:
+        GoogleChrome: 
+          days_in_catalog: 3
+    staging_manual:
+      promote_to:
+        - "production"
+      promote_from:
+        - "staging"
+      days_in_catalog: 30
+  default_days_in_catalog : 5
+
+
