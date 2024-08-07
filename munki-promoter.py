@@ -316,7 +316,7 @@ def prep_all_promotions(config, munki_path, config_path):
 						logging.error(e, exc_info=True)
 						sys.exit(1)
 			except OSError as e:
-				logging.error(f"Could not open file {full_file_path} in munki directory.")
+				logging.error(f"Could not open file {file} in munki directory.")
 				logging.error(e, exc_info=True)
 				sys.exit(1)
 		return names, versions, prepped_promotions, promote_tos
@@ -363,7 +363,7 @@ def prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items,
 					logging.error(e, exc_info=True)
 					sys.exit(1)
 		except OSError as e:
-			logging.error(f"Could not open file {full_file_path} in munki directory.")
+			logging.error(f"Could not open file {file} in munki directory.")
 			logging.error(e, exc_info=True)
 			sys.exit(1)
 	return names, versions, promotions
@@ -376,16 +376,16 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 	except Exception as e:
 		logging.error(f"File {item_path} is missing expected keys.", exc_info=True)
 		sys.exit(1)
+	# check if custom item
+	if item_name in custom_items and type(custom_items[item_name]) == dict:
+		if "days_in_catalog" in custom_items[item_name]:
+			days = custom_items[item_name]["days_in_catalog"]
+		if "promote_to" in custom_items[item_name] and type(custom_items[item_name]["promote_to"]) == list and len(custom_items[item_name]["promote_to"]) > 0:
+			promote_to = custom_items[item_name]["promote_to"]
+		if "promote_from" in custom_items[item_name] and type(custom_items[item_name]["promote_from"]) == list and len(custom_items[item_name]["promote_from"]) > 0:
+			promote_from = custom_items[item_name]["promote_from"]
 	# check if eligable for promotion based on current catalogs
 	if set(item_catalogs) == set(promote_from): # convert to set so order doesn't matter
-		# check if custom item
-		if item_name in custom_items and type(custom_items[item_name]) == dict:
-			if "days_in_catalog" in custom_items[item_name]:
-				days = custom_items[item_name]["days_in_catalog"]
-			if "promote_to" in custom_items[item_name] and type(custom_items[item_name]["promote_to"]) == list and len(custom_items[item_name]["promote_to"]) > 0:
-				promote_to = custom_items[item_name]["promote_to"]
-			if "promote_from" in custom_items[item_name] and type(custom_items[item_name]["promote_from"]) == list and len(custom_items[item_name]["promote_from"]) > 0:
-				promote_from = custom_items[item_name]["promote_from"]
 		# check if eligable for promotion based on days
 		today = datetime.datetime.now()
 		last_edited_date = today
@@ -394,12 +394,14 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 				last_edited_date = item["_metadata"]["munki-promoter_edit_date"]
 			elif "creation_date" in item["_metadata"]:
 				last_edited_date = item["_metadata"]["creation_date"]
+				logging.info(f"File {item_path} is missing a last edit date so the creation date {last_edited_date} will be used with the assumption that this item has been in the current catalog(s) since creation.")
 			else:
 				item["_metadata"]["munki-promoter_edit_date"] = today
+				logging.info(f"File {item_path} is missing a creation date so munki-promoter will set the last edit date to today.")
 				try_add_metadata(item_path, item)
-
 		else:
 			item["_metadata"] = {"munki-promoter_edit_date": today}
+			logging.info(f"File {item_path} is missing a creation date so munki-promoter will set the last edit date to today.")
 			try_add_metadata(item_path, item)
 		if last_edited_date + datetime.timedelta(days=days) < today:
 			# up for promotion!
@@ -447,12 +449,88 @@ def try_add_metadata(item_path, item):
 	except OSError as e:
 			logging.warning(f"File {item_path} is missing metadata and this file can not be written to.", exc_info=True)
 
+def prep_set_edit_date(munki_path, overwrite=False, promotion=None, promote_from_days=None, config=None, config_path=None):
+	if promotion:
+		if config and "promotions" in config and type(config["promotions"]) == dict:
+			promotions = config["promotions"]
+			if does_promotion_exist(promotion, promotions):
+				_, promote_from, _, custom_items = get_promotion_info(promotion, promotions, config, config_path)
+				return prep_pkgsinfo_edit_date(munki_path, promote_from=promote_from, promote_from_days=promote_from_days, custom_items=custom_items) 
+			else:
+				# error: catalog does not exist
+				logging.error(f'Promotion "{promotion}" not found! Use --list to see valid catalogs to promote. Promotions can be configured in {config_path}.')
+				sys.exit(1)
+		else:
+			# error: bad yaml config
+			logging.error(f'No promotions are currently defined in {config_path}.')
+			sys.exit(1)
+	else:
+		return prep_pkgsinfo_edit_date(munki_path, overwrite=overwrite) 
+
+def prep_pkgsinfo_edit_date(munki_path, overwrite=False, promote_from=None, promote_from_days=None, custom_items=None):
+	names = []
+	changes = []
+	for file in get_munki_paths(munki_path):
+		try:
+			# open file
+			with open(file, "rb+") as fp:
+				try:
+					# load file
+					pkginfo = plistlib.load(fp, fmt=None)
+					# prep individual pkginfo for promotion
+					item_name, item = prep_item_edit_date(pkginfo, file, overwrite, promote_from, promote_from_days, custom_items)
+					if item_name: # would be None if not eligible for promotion
+						names.append(item_name)
+						changes.append(item)
+				except plistlib.InvalidFileException as e:
+					logging.error(f"Could not load file {file} in munki directory.")
+					logging.error(e, exc_info=True)
+					sys.exit(1)
+		except OSError as e:
+			logging.error(f"Could not open file {file} in munki directory.")
+			logging.error(e, exc_info=True)
+			sys.exit(1)
+	return names, changes
+
+def prep_item_edit_date(item, item_path, overwrite, promote_from, promote_from_days, custom_items):
+	try:
+		item_name = item["name"]
+		if promote_from:
+			item_catalogs = item["catalogs"]
+	except Exception as e:
+		logging.error(f"File {item_path} is missing expected keys.", exc_info=True)
+		sys.exit(1)
+	# if for a specific promotion, check if custom item
+	if promote_from and (item_name in custom_items and type(custom_items[item_name]) == dict):
+		if "promote_from" in custom_items[item_name] and type(custom_items[item_name]["promote_from"]) == list and len(custom_items[item_name]["promote_from"]) > 0:
+			promote_from = custom_items[item_name]["promote_from"]
+	# check if overwriting or if value missing
+	if not "_metadata" in item:
+		item["_metadata"] = dict()
+	if overwrite or (not "munki-promoter_edit_date" in item["_metadata"]):
+		today = datetime.datetime.now()
+		if promote_from:
+			if set(item_catalogs) == set(promote_from):
+				if not "creation_date" in item["_metadata"]:
+					logging.info(f"File {item_path} is missing a creation date so munki-promoter will set the last edit date to today.")
+					item["_metadata"]["munki-promoter_edit_date"] = today
+					return item_name, (item_path, item)
+				else:
+					creation_date = item["_metadata"]["creation_date"]
+					last_edited_date = creation_date + datetime.timedelta(days=promote_from_days)
+					item["_metadata"]["munki-promoter_edit_date"] = last_edited_date
+					return item_name, (item_path, item)
+		else:
+			item["_metadata"]["munki-promoter_edit_date"] = today
+			return item_name, (item_path, item)
+	return None, None
+
 # ----------------------------------------
 #              User input
 # ----------------------------------------
 def user_confirm(s):
 	print(s)
-	print(f'Do you want to promote these? [y/n] ', end='')
+	print(f'Do you want to proceed? [y/n] ', end='')
 	while True:
 		try:
 			return _BOOLMAP[str(input()).lower()]
@@ -480,6 +558,12 @@ def process_options():
 						help=f'Optional file name to print markdown summary of promotions.')
 	parser.add_option('--auto', '-a', dest='auto', action='store_true',
 						help='Run without interaction.')
+	parser.add_option('--reset-edit-date', dest='reset_edit', action='store_true',
+						help='Reset the last edited day of all items to today.')
+	parser.add_option('--set-unknown-edit-date', dest='set_edit', action='store_true',
+						help='Set all missing last edited days to today.')
+	parser.add_option('--days-before-current-catalog', dest='promote_from_days', type='int',
+						help='Requires additional command line argument `promotion` to run. For all items that meet the `promote_from` conditions for the given promotion, if the last edit date is unknown it is calculated under the assumption that it took n days to be promoted to the current catalog(s), where n is set by this `days-before-promote-from` argument.')
 	options, _ = parser.parse_args()
 	# check if slack url in env
 	slack_url = options.slack_url
@@ -487,8 +571,8 @@ def process_options():
 		slack_url = os.environ.get("SLACK_WEBHOOK")
 	# return based on config file option
 	if options.config_file:
-		return options.promotion, options.list, options.munki_path, options.config_file, True, slack_url, options.markdown_path, options.auto
-	return options.promotion, options.list, options.munki_path, CONFIG_FILE, False, slack_url, options.markdown_path, options.auto
+		return options.promotion, options.list, options.munki_path, options.config_file, True, slack_url, options.markdown_path, options.auto, options.reset_edit, options.set_edit, options.promote_from_days
+	return options.promotion, options.list, options.munki_path, CONFIG_FILE, False, slack_url, options.markdown_path, options.auto, options.reset_edit, options.set_edit, options.promote_from_days
 
 def setup_logging():
 	logging.basicConfig(
@@ -499,10 +583,36 @@ def setup_logging():
 
 def main():
 	setup_logging()
-	promotion, show_list, munki_path, config_path, is_config_specified, slack_url, md_path, auto = process_options()
+	promotion, show_list, munki_path, config_path, is_config_specified, slack_url, md_path, auto, reset_edit, set_edit, promote_from_days = process_options()
 	config = get_config(config_path, is_config_specified)
 
-	if show_list:
+	if reset_edit or set_edit or promote_from_days:
+		if reset_edit:
+			logging.info('Reset the last edited day of all items to today.')
+			names, preped_changes = prep_set_edit_date(munki_path, overwrite=True)
+		elif set_edit:
+			logging.info('Setting all missing last edited days to today.')
+			names, preped_changes = prep_set_edit_date(munki_path)
+		elif promote_from_days:
+			if not promotion:
+				logging.error("Command line argument `days-before-promote-from` must be accompanied by command line argument `promotion` to run, but this is not the case.")
+				logging.error("For all items that meet the `promote_from` conditions for the given promotion, if the last edit date is unkown but the creation date is known, the last edit date is calculated under the assumption that it took n days to be promoted to the current catalogue(s), where n is set by this `days-before-promote-from` argument.")
+				sys.exit(1)
+			else:
+				logging.info(f'Setting all missing last edited days for items that meet the `promote_from` conditions for "{promotion}", under the assumption that it took {promote_from_days} days to be promoted to the current catalog(s).')
+				names, preped_changes = prep_set_edit_date(munki_path, promotion=promotion, promote_from_days=promote_from_days, config=config, config_path=config_path)
+		if names:
+			s = f'The metadata of the following items will be updated: {and_str(names)}'
+			if auto or user_confirm(s):
+				for preped_change in preped_changes:
+					item_path, item = preped_change
+					try_add_metadata(item_path, item)
+			else:
+				logging.info('Ok, aborted..')
+		else:
+			logging.info("No metadata need to be updated.")
+
+	elif show_list:
 		print_promotions(config, config_path)
 
 	elif promotion:
