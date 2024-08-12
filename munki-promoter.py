@@ -49,6 +49,8 @@ using_default_config = False
 # ----------------------------------------
 
 def and_str(l):
+	if len(l) == 1:
+		return l[0]
 	result = ""
 	for i, s in enumerate(l):
 		result += s 
@@ -63,14 +65,22 @@ def white_space_pad_strings(l):
 	result = [s + (' ' * (maxlen - len(s))) for s in l]
 	return result 
 
-def describe_promotion(promotion, promote_to, names, versions):
+def describe_promotion(promotion, promote_to, names, versions, custom_item_descriptions):
 	result = "\n------------------------------------------------------------------------------------\n"
 	result += f'                        Applying promotion "{promotion}"\n'
 	result += f"   Promoting the catalogs of the following pkgsinfo files to {promote_to}\n"
 	result += "------------------------------------------------------------------------------------\n"
-	names = white_space_pad_strings(names)
-	for i, name in enumerate(names):
-		result += (f"{name} - {versions[i]}\n")
+	if len(names) > 0:
+		names = white_space_pad_strings(names)
+		for i, name in enumerate(names):
+			result += (f"{name} - {versions[i]}\n")
+	if len(custom_item_descriptions['names']) > 0:
+		custom_names = white_space_pad_strings(custom_item_descriptions['names'])
+		custom_versions = white_space_pad_strings(custom_item_descriptions['versions'])
+		custom_promote_tos = custom_item_descriptions['promote_tos']
+		result += "The following pkgsinfo files are custom items that impact which catalog they will be promoted to:\n"
+		for i, name in enumerate(custom_names):
+			result += f"{name} - {custom_versions[i]} - will be promoted to {and_str(custom_promote_tos[i])} \n"
 	return result
 
 
@@ -196,7 +206,7 @@ def get_promotion_info(promotion, promotions, config, config_path):
 # 					Slack
 # ----------------------------------------
 def send_slack_webhook(slack_url, slack_blocks):
-	context_block = {"type": "context", "elements": [{"type": "mrkdwn", "text": ":monkey_face: This message brought to you by <https://gitlab.molops.io/cit/cpe/munki-promoter|munki-promoter>."}]}
+	context_block = {"type": "context", "elements": [{"type": "mrkdwn", "text": ":monkey_face: This message brought to you by <https://github.com/jc0b/munki-promoter|munki-promoter>."}]}
 	slack_blocks.append(context_block)
 	slack_blocks.append({"type": "divider"})
 	slack_dict = {"blocks" : slack_blocks}
@@ -211,20 +221,35 @@ def send_slack_webhook(slack_url, slack_blocks):
 		logging.error(f"Slack webhook could not be sent. HTTP response {resp.status}.")
 		sys.exit(1)
 
-def add_to_slack_blocks(blocks, promotion, promote_to, names, versions):
-	element1 = {"type": "text", "text": f'Applied promotion "{promotion}".\n', "style": {"bold": True}}
-	if len(promote_to) > 1:
-		element2 = {"type": "text", "text": f"The following items have been promoted to Munki {and_str(promote_to)} catalogs."}
-	else:
-		element2 = {"type": "text", "text": f"The following items have been promoted to Munki {promote_to[0]} catalog."}
-	subheading  = {"type": "rich_text_section", "elements": [element1, element2]}
+def add_to_slack_blocks(blocks, promotion, promote_to, names, versions, custom_item_descriptions):
+	heading_element = {"type": "text", "text": f'Applied promotion "{promotion}".', "style": {"bold": True}}
+	blocks.append({"type": "rich_text", "elements": [{"type": "rich_text_section","elements": [heading_element]}]})
 
-	item_blocks = []
-	for i, name in enumerate(names):
-		item_blocks.append({"type": "rich_text_section", "elements": [{"type": "text", "text": f"{name} - {versions[i]}\n"}]})
-	list_element = {"type": "rich_text_list", "style": "bullet", "indent": 0, "border": 0, "elements": item_blocks}
+	if len(names) > 0:
+		if len(promote_to) > 1:
+			subheading = {"type": "text", "text": f"The following items have been promoted to Munki {and_str(promote_to)} catalogs:"}
+		else:
+			subheading = {"type": "text", "text": f"The following items have been promoted to Munki {promote_to[0]} catalog:"}
+		blocks.append({"type": "rich_text", "elements": [{"type": "rich_text_section","elements": [subheading]}]})
+		item_blocks = []
+		for i, name in enumerate(names):
+			item_blocks.append({"type": "rich_text_section", "elements": [{"type": "text", "text": f"{name} - {versions[i]}\n"}]})
+		blocks.append({"type": "rich_text", "elements": [{"type": "rich_text_list", "style": "bullet", "indent": 0, "border": 0, "elements": item_blocks}]})
 
-	blocks.append({"type": "rich_text", "elements": [subheading, list_element]})
+	custom_names = custom_item_descriptions['names']
+	custom_versions = custom_item_descriptions['versions']
+	custom_promote_tos = custom_item_descriptions['promote_tos']
+	if len(custom_names) > 0:
+		custom_subheading = {"type": "text", "text": f"The following custom items have been promoted:"}
+		blocks.append({"type": "rich_text", "elements": [{"type": "rich_text_section","elements": [custom_subheading]}]})
+		custom_item_blocks = []
+		for i, name in enumerate(custom_names):
+			if len(custom_promote_tos[i]) > 1:
+				custom_item_blocks.append({"type": "rich_text_section", "elements": [{"type": "text", "text": f"{name} - {custom_versions[i]} - promoted to Munki {and_str(custom_promote_tos[i])} catalogs\n"}]})
+			else:
+				custom_item_blocks.append({"type": "rich_text_section", "elements": [{"type": "text", "text": f"{name} - {custom_versions[i]} - promoted to Munki {and_str(custom_promote_tos[i])} catalog\n"}]})
+		blocks.append({"type": "rich_text", "elements": [{"type": "rich_text_list", "style": "bullet", "indent": 0, "border": 0, "elements": custom_item_blocks}]})
+
 	return blocks
 
 def add_slack_div(blocks):
@@ -256,14 +281,26 @@ def write_md_file(md_file, md):
 		sys.exit(1)
 
 
-def md_description(promotion, promote_to, names, versions):
+def md_description(promotion, promote_to, names, versions, custom_item_descriptions):
 	result = f'Applied promotion "{promotion}".\n'
-	if len(promote_to) > 1:
-		result += f"The following items have been automatically promoted to Munki {and_str(promote_to)} catalogs.\n"
-	else:
-		result += f"The following items have been automatically promoted to Munki {promote_to[0]} catalog.\n"
-	for i, name in enumerate(names):
-		result += f"- {name} - {versions[i]}\n"
+	if len(names) > 0:
+		if len(promote_to) > 1:
+			result += f"The following items have been automatically promoted to Munki {and_str(promote_to)} catalogs:\n"
+		else:
+			result += f"The following items have been automatically promoted to Munki {promote_to[0]} catalog:\n"
+		for i, name in enumerate(names):
+			result += f"- {name}: {versions[i]}\n"
+
+	custom_names = custom_item_descriptions['names']
+	custom_versions = custom_item_descriptions['versions']
+	custom_promote_tos = custom_item_descriptions['promote_tos']
+	if len(custom_names) > 0:
+		result += "The following custom items have been automatically promoted:\n"
+		for i, name in enumerate(custom_names):
+			if len(custom_promote_tos[i]) > 1:
+				result += f"- {name}: {custom_versions[i]} (promoted to Munki {and_str(custom_promote_tos[i])} catalogs)\n"
+			else:
+				result += f"- {name}: {custom_versions[i]} (promoted to Munki {and_str(custom_promote_tos[i])} catalog)\n"
 	result += "\n"
 	return result
 
@@ -286,6 +323,7 @@ def get_munki_paths(munki_path):
 def prep_all_promotions(config, munki_path, config_path):
 	names = dict()
 	versions = dict()
+	custom_item_descriptions = dict()
 	prepped_promotions = []
 	promote_tos = dict()
 	if config and "promotions" in config and type(config["promotions"]) == dict:
@@ -300,15 +338,21 @@ def prep_all_promotions(config, munki_path, config_path):
 						# prep individual pkginfo for promotion
 						for promotion in config["promotions"]:
 							promote_to, promote_from, days, custom_items = get_promotion_info(promotion, promotions, config, config_path)
-							item_name, item_version, item_promotion = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
+							item_name, item_version, item_promotion, custom_promote_to = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
 							if item_name: # would be None if not eligible for promotion
 								if not (promotion in names):
 									# first of this promotion type
 									names[promotion] = []
 									versions[promotion] = []
+									custom_item_descriptions[promotion] = {"names": [], "versions": [], "promote_tos": []}
 									promote_tos[promotion] = promote_to
-								names[promotion].append(item_name)
-								versions[promotion].append(item_version)
+								if custom_promote_to:
+									custom_item_descriptions[promotion]["names"].append(item_name)
+									custom_item_descriptions[promotion]["versions"].append(item_version)
+									custom_item_descriptions[promotion]["promote_tos"].append(custom_promote_to)
+								else:
+									names[promotion].append(item_name)
+									versions[promotion].append(item_version)
 								prepped_promotions.append(item_promotion)
 								break
 					except plistlib.InvalidFileException as e:
@@ -316,10 +360,10 @@ def prep_all_promotions(config, munki_path, config_path):
 						logging.error(e, exc_info=True)
 						sys.exit(1)
 			except OSError as e:
-				logging.error(f"Could not open file {full_file_path} in munki directory.")
+				logging.error(f"Could not open file {file} in munki directory.")
 				logging.error(e, exc_info=True)
 				sys.exit(1)
-		return names, versions, prepped_promotions, promote_tos
+		return names, versions, custom_item_descriptions, prepped_promotions, promote_tos
 	else:
 		# error: bad yaml config
 		logging.error(f'No promotions are currently defined in {config_path}.')
@@ -330,8 +374,8 @@ def prep_single_promotion(promotion, config, munki_path, config_path):
 		promotions = config["promotions"]
 		if does_promotion_exist(promotion, promotions):
 			promote_to, promote_from, days, custom_items = get_promotion_info(promotion, promotions, config, config_path)
-			names, version, promotions = prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items, munki_path) 
-			return names, version, promotions, promote_to
+			names, version, custom_item_descriptions, promotions = prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items, munki_path) 
+			return names, version, custom_item_descriptions, promotions, promote_to
 		else:
 			# error: catalog does not exist
 			logging.error(f'Promotion "{promotion}" not found! Use --list to see valid catalogs to promote. Promotions can be configured in {config_path}.')
@@ -345,6 +389,7 @@ def prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items,
 	names = []
 	versions = []
 	promotions = []
+	custom_item_descriptions = {"names": [], "versions": [], "promote_tos": []}
 	for file in get_munki_paths(munki_path):
 		try:
 			# open file
@@ -353,22 +398,28 @@ def prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items,
 					# load file
 					pkginfo = plistlib.load(fp, fmt=None)
 					# prep individual pkginfo for promotion
-					item_name, item_version, item_promotion = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
+					item_name, item_version, item_promotion, custom_promote_to = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
 					if item_name: # would be None if not eligible for promotion
-						names.append(item_name)
-						versions.append(item_version)
+						if custom_promote_to:
+							custom_item_descriptions["names"].append(item_name)
+							custom_item_descriptions["versions"].append(item_version)
+							custom_item_descriptions["promote_tos"].append(custom_promote_to)
+						else:
+							names.append(item_name)
+							versions.append(item_version)
 						promotions.append(item_promotion)
 				except plistlib.InvalidFileException as e:
 					logging.error(f"Could not load file {file} in munki directory.")
 					logging.error(e, exc_info=True)
 					sys.exit(1)
 		except OSError as e:
-			logging.error(f"Could not open file {full_file_path} in munki directory.")
+			logging.error(f"Could not open file {file} in munki directory.")
 			logging.error(e, exc_info=True)
 			sys.exit(1)
-	return names, versions, promotions
+	return names, versions, custom_item_descriptions, promotions
 
 def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, item_path):
+	changed_promote_to = False
 	try:
 		item_name = item["name"]
 		item_version = item["version"]
@@ -376,16 +427,17 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 	except Exception as e:
 		logging.error(f"File {item_path} is missing expected keys.", exc_info=True)
 		sys.exit(1)
+	# check if custom item
+	if item_name in custom_items and type(custom_items[item_name]) == dict:
+		if "days_in_catalog" in custom_items[item_name]:
+			days = custom_items[item_name]["days_in_catalog"]
+		if "promote_to" in custom_items[item_name] and type(custom_items[item_name]["promote_to"]) == list and len(custom_items[item_name]["promote_to"]) > 0:
+			promote_to = custom_items[item_name]["promote_to"]
+			changed_promote_to = True
+		if "promote_from" in custom_items[item_name] and type(custom_items[item_name]["promote_from"]) == list and len(custom_items[item_name]["promote_from"]) > 0:
+			promote_from = custom_items[item_name]["promote_from"]
 	# check if eligable for promotion based on current catalogs
 	if set(item_catalogs) == set(promote_from): # convert to set so order doesn't matter
-		# check if custom item
-		if item_name in custom_items and type(custom_items[item_name]) == dict:
-			if "days_in_catalog" in custom_items[item_name]:
-				days = custom_items[item_name]["days_in_catalog"]
-			if "promote_to" in custom_items[item_name] and type(custom_items[item_name]["promote_to"]) == list and len(custom_items[item_name]["promote_to"]) > 0:
-				promote_to = custom_items[item_name]["promote_to"]
-			if "promote_from" in custom_items[item_name] and type(custom_items[item_name]["promote_from"]) == list and len(custom_items[item_name]["promote_from"]) > 0:
-				promote_from = custom_items[item_name]["promote_from"]
 		# check if eligable for promotion based on days
 		today = datetime.datetime.now()
 		last_edited_date = today
@@ -394,19 +446,24 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 				last_edited_date = item["_metadata"]["munki-promoter_edit_date"]
 			elif "creation_date" in item["_metadata"]:
 				last_edited_date = item["_metadata"]["creation_date"]
+				logging.info(f"File {item_path} is missing a last edit date so the creation date {last_edited_date} will be used with the assumption that this item has been in the current catalog(s) since creation.")
 			else:
 				item["_metadata"]["munki-promoter_edit_date"] = today
+				logging.info(f"File {item_path} is missing a creation date so munki-promoter will set the last edit date to today.")
 				try_add_metadata(item_path, item)
-
 		else:
 			item["_metadata"] = {"munki-promoter_edit_date": today}
+			logging.info(f"File {item_path} is missing a creation date so munki-promoter will set the last edit date to today.")
 			try_add_metadata(item_path, item)
 		if last_edited_date + datetime.timedelta(days=days) < today:
 			# up for promotion!
 			item["catalogs"] = promote_to
-			item["_metadata"]["munki-promoter_edit_date"] = today 
-			return item_name, item_version, (item_path, item)
-	return None, None, None
+			item["_metadata"]["munki-promoter_edit_date"] = today
+			if changed_promote_to:
+				return item_name, item_version, (item_path, item), promote_to
+			else:
+				return item_name, item_version, (item_path, item), None
+	return None, None, None, None
 
 def promote_items(preped_promotions):
 	for item_path, item in preped_promotions:
@@ -447,12 +504,88 @@ def try_add_metadata(item_path, item):
 	except OSError as e:
 			logging.warning(f"File {item_path} is missing metadata and this file can not be written to.", exc_info=True)
 
+def prep_set_edit_date(munki_path, overwrite=False, promotion=None, promote_from_days=None, config=None, config_path=None):
+	if promotion:
+		if config and "promotions" in config and type(config["promotions"]) == dict:
+			promotions = config["promotions"]
+			if does_promotion_exist(promotion, promotions):
+				_, promote_from, _, custom_items = get_promotion_info(promotion, promotions, config, config_path)
+				return prep_pkgsinfo_edit_date(munki_path, promote_from=promote_from, promote_from_days=promote_from_days, custom_items=custom_items) 
+			else:
+				# error: catalog does not exist
+				logging.error(f'Promotion "{promotion}" not found! Use --list to see valid catalogs to promote. Promotions can be configured in {config_path}.')
+				sys.exit(1)
+		else:
+			# error: bad yaml config
+			logging.error(f'No promotions are currently defined in {config_path}.')
+			sys.exit(1)
+	else:
+		return prep_pkgsinfo_edit_date(munki_path, overwrite=overwrite) 
+
+def prep_pkgsinfo_edit_date(munki_path, overwrite=False, promote_from=None, promote_from_days=None, custom_items=None):
+	names = []
+	changes = []
+	for file in get_munki_paths(munki_path):
+		try:
+			# open file
+			with open(file, "rb+") as fp:
+				try:
+					# load file
+					pkginfo = plistlib.load(fp, fmt=None)
+					# prep individual pkginfo for promotion
+					item_name, item = prep_item_edit_date(pkginfo, file, overwrite, promote_from, promote_from_days, custom_items)
+					if item_name: # would be None if not eligible for promotion
+						names.append(item_name)
+						changes.append(item)
+				except plistlib.InvalidFileException as e:
+					logging.error(f"Could not load file {file} in munki directory.")
+					logging.error(e, exc_info=True)
+					sys.exit(1)
+		except OSError as e:
+			logging.error(f"Could not open file {file} in munki directory.")
+			logging.error(e, exc_info=True)
+			sys.exit(1)
+	return names, changes
+
+def prep_item_edit_date(item, item_path, overwrite, promote_from, promote_from_days, custom_items):
+	try:
+		item_name = item["name"]
+		if promote_from:
+			item_catalogs = item["catalogs"]
+	except Exception as e:
+		logging.error(f"File {item_path} is missing expected keys.", exc_info=True)
+		sys.exit(1)
+	# if for a specific promotion, check if custom item
+	if promote_from and (item_name in custom_items and type(custom_items[item_name]) == dict):
+		if "promote_from" in custom_items[item_name] and type(custom_items[item_name]["promote_from"]) == list and len(custom_items[item_name]["promote_from"]) > 0:
+			promote_from = custom_items[item_name]["promote_from"]
+	# check if overwriting or if value missing
+	if not "_metadata" in item:
+		item["_metadata"] = dict()
+	if overwrite or (not "munki-promoter_edit_date" in item["_metadata"]):
+		today = datetime.datetime.now()
+		if promote_from:
+			if set(item_catalogs) == set(promote_from):
+				if not "creation_date" in item["_metadata"]:
+					logging.info(f"File {item_path} is missing a creation date so munki-promoter will set the last edit date to today.")
+					item["_metadata"]["munki-promoter_edit_date"] = today
+					return item_name, (item_path, item)
+				else:
+					creation_date = item["_metadata"]["creation_date"]
+					last_edited_date = creation_date + datetime.timedelta(days=promote_from_days)
+					item["_metadata"]["munki-promoter_edit_date"] = last_edited_date
+					return item_name, (item_path, item)
+		else:
+			item["_metadata"]["munki-promoter_edit_date"] = today
+			return item_name, (item_path, item)
+	return None, None
+
 # ----------------------------------------
 #              User input
 # ----------------------------------------
 def user_confirm(s):
 	print(s)
-	print(f'Do you want to promote these? [y/n] ', end='')
+	print(f'Do you want to proceed? [y/n] ', end='')
 	while True:
 		try:
 			return _BOOLMAP[str(input()).lower()]
@@ -480,6 +613,12 @@ def process_options():
 						help=f'Optional file name to print markdown summary of promotions.')
 	parser.add_option('--auto', '-a', dest='auto', action='store_true',
 						help='Run without interaction.')
+	parser.add_option('--reset-edit-date', dest='reset_edit', action='store_true',
+						help='Reset the last edited day of all items to today.')
+	parser.add_option('--set-unknown-edit-date', dest='set_edit', action='store_true',
+						help='Set all missing last edited days to today.')
+	parser.add_option('--days-before-current-catalog', dest='promote_from_days', type='int',
+						help='Requires additional command line argument `promotion` to run. For all items that meet the `promote_from` conditions for the given promotion, if the last edit date is unknown it is calculated under the assumption that it took n days to be promoted to the current catalog(s), where n is set by this `days-before-promote-from` argument.')
 	options, _ = parser.parse_args()
 	# check if slack url in env
 	slack_url = options.slack_url
@@ -487,8 +626,8 @@ def process_options():
 		slack_url = os.environ.get("SLACK_WEBHOOK")
 	# return based on config file option
 	if options.config_file:
-		return options.promotion, options.list, options.munki_path, options.config_file, True, slack_url, options.markdown_path, options.auto
-	return options.promotion, options.list, options.munki_path, CONFIG_FILE, False, slack_url, options.markdown_path, options.auto
+		return options.promotion, options.list, options.munki_path, options.config_file, True, slack_url, options.markdown_path, options.auto, options.reset_edit, options.set_edit, options.promote_from_days
+	return options.promotion, options.list, options.munki_path, CONFIG_FILE, False, slack_url, options.markdown_path, options.auto, options.reset_edit, options.set_edit, options.promote_from_days
 
 def setup_logging():
 	logging.basicConfig(
@@ -499,26 +638,52 @@ def setup_logging():
 
 def main():
 	setup_logging()
-	promotion, show_list, munki_path, config_path, is_config_specified, slack_url, md_path, auto = process_options()
+	promotion, show_list, munki_path, config_path, is_config_specified, slack_url, md_path, auto, reset_edit, set_edit, promote_from_days = process_options()
 	config = get_config(config_path, is_config_specified)
 
-	if show_list:
+	if reset_edit or set_edit or promote_from_days:
+		if reset_edit:
+			logging.info('Reset the last edited day of all items to today.')
+			names, preped_changes = prep_set_edit_date(munki_path, overwrite=True)
+		elif set_edit:
+			logging.info('Setting all missing last edited days to today.')
+			names, preped_changes = prep_set_edit_date(munki_path)
+		elif promote_from_days:
+			if not promotion:
+				logging.error("Command line argument `days-before-promote-from` must be accompanied by command line argument `promotion` to run, but this is not the case.")
+				logging.error("For all items that meet the `promote_from` conditions for the given promotion, if the last edit date is unkown but the creation date is known, the last edit date is calculated under the assumption that it took n days to be promoted to the current catalogue(s), where n is set by this `days-before-promote-from` argument.")
+				sys.exit(1)
+			else:
+				logging.info(f'Setting all missing last edited days for items that meet the `promote_from` conditions for "{promotion}", under the assumption that it took {promote_from_days} days to be promoted to the current catalog(s).')
+				names, preped_changes = prep_set_edit_date(munki_path, promotion=promotion, promote_from_days=promote_from_days, config=config, config_path=config_path)
+		if names:
+			s = f'The metadata of the following items will be updated: {and_str(names)}'
+			if auto or user_confirm(s):
+				for preped_change in preped_changes:
+					item_path, item = preped_change
+					try_add_metadata(item_path, item)
+			else:
+				logging.info('Ok, aborted..')
+		else:
+			logging.info("No metadata need to be updated.")
+
+	elif show_list:
 		print_promotions(config, config_path)
 
 	elif promotion:
-		names, versions, preped_promotions, promote_to = prep_single_promotion(promotion, config, munki_path, config_path)
+		names, versions, custom_item_descriptions, preped_promotions, promote_to = prep_single_promotion(promotion, config, munki_path, config_path)
 		if names:
-			s = describe_promotion(promotion, promote_to, names, versions)
+			s = describe_promotion(promotion, promote_to, names, versions, custom_item_descriptions)
 			if auto or user_confirm(s):
 				# apply changes
 				promote_items(preped_promotions)
 				# notify about changes
 				if slack_url:
 					blocks = setup_slack_blocks()
-					blocks = add_to_slack_blocks(blocks, promotion, promote_to, names, versions)
+					blocks = add_to_slack_blocks(blocks, promotion, promote_to, names, versions, custom_item_descriptions)
 					send_slack_webhook(slack_url, blocks)
 				if md_path:
-					md = md_description(promotion, promote_to, names, versions)
+					md = md_description(promotion, promote_to, names, versions, custom_item_descriptions)
 					write_md_file(md_path, md)
 			else:
 				logging.info('Ok, aborted..')
@@ -526,12 +691,12 @@ def main():
 			logging.info("No items need to be promoted.")
 
 	else:
-		names_dict, versions_dict, preped_promotions, promote_tos = prep_all_promotions(config, munki_path, config_path)
+		names_dict, versions_dict, custom_item_descriptions_dict, preped_promotions, promote_tos = prep_all_promotions(config, munki_path, config_path)
 		if len(names_dict) > 0:
 			s = ""
 			for promotion in config["promotions"]: # present promotions in order of config file
 				if promotion in names_dict:
-					s += describe_promotion(promotion, promote_tos[promotion], names_dict[promotion], versions_dict[promotion])
+					s += describe_promotion(promotion, promote_tos[promotion], names_dict[promotion], versions_dict[promotion], custom_item_descriptions_dict[promotion])
 			if auto or user_confirm(s):
 				# apply changes
 				promote_items(preped_promotions)
@@ -540,13 +705,13 @@ def main():
 					blocks = setup_slack_blocks()
 					for promotion in config["promotions"]: # present promotions in order of config file
 						if promotion in names_dict:
-							blocks = add_to_slack_blocks(blocks, promotion, promote_tos[promotion], names_dict[promotion], versions_dict[promotion])
+							blocks = add_to_slack_blocks(blocks, promotion, promote_tos[promotion], names_dict[promotion], versions_dict[promotion], custom_item_descriptions_dict[promotion])
 					send_slack_webhook(slack_url, blocks)
 				if md_path:
 					md = ""
 					for promotion in config["promotions"]: # present promotions in order of config file
 						if promotion in names_dict:
-							md += md_description(promotion, promote_tos[promotion], names_dict[promotion], versions_dict[promotion])
+							md += md_description(promotion, promote_tos[promotion], names_dict[promotion], versions_dict[promotion], custom_item_descriptions_dict[promotion])
 					write_md_file(md_path, md)
 			else:
 				logging.info('Ok, aborted..')
