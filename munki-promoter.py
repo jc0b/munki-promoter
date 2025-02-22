@@ -214,7 +214,7 @@ def check_selection_specified_correctly(config, config_path):
 				logging.error(f'Selection type set incorrectly in {config_path}. Selection type must be "inclusion", "exclusion", or "all", but was set to {config["selection"]["type"]}.')
 				sys.exit(1)
 		else:
-			logging.warning(f"Selection key found in {config_path}, but no selection type found. All items files will be considered.")
+			logging.warning(f"Selection key found in {config_path}, but no selection type found. All items will be considered.")
 
 # ----------------------------------------
 # 					Slack
