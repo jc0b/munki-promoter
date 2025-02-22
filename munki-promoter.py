@@ -518,7 +518,7 @@ def try_add_metadata(item_path, item):
 	except OSError as e:
 			logging.warning(f"File {item_path} is missing metadata and this file can not be written to.", exc_info=True)
 
-def prep_set_edit_date(munki_path, overwrite=False, promotion=None, promote_from_days=None, config=None, config_path=None):
+def prep_set_edit_date(munki_path, config, overwrite=False, promotion=None, promote_from_days=None, config=None, config_path=None):
 	if promotion:
 		if config and "promotions" in config and type(config["promotions"]) == dict:
 			promotions = config["promotions"]
@@ -536,7 +536,7 @@ def prep_set_edit_date(munki_path, overwrite=False, promotion=None, promote_from
 	else:
 		return prep_pkgsinfo_edit_date(munki_path, overwrite=overwrite) 
 
-def prep_pkgsinfo_edit_date(munki_path, overwrite=False, promote_from=None, promote_from_days=None, custom_items=None):
+def prep_pkgsinfo_edit_date(munki_path, config, overwrite=False, promote_from=None, promote_from_days=None, custom_items=None):
 	names = []
 	changes = []
 	for file in get_munki_paths(munki_path):
@@ -548,7 +548,7 @@ def prep_pkgsinfo_edit_date(munki_path, overwrite=False, promote_from=None, prom
 					pkginfo = plistlib.load(fp, fmt=None)
 					# prep individual pkginfo for promotion
 					item_name, item = prep_item_edit_date(pkginfo, file, overwrite, promote_from, promote_from_days, custom_items)
-					if item_name and check_selection(config, item): # would be None if not eligible for promotion
+					if item_name and check_selection(config, item_name): # would be None if not eligible for promotion
 						names.append(item_name)
 						changes.append(item)
 				except plistlib.InvalidFileException as e:
@@ -671,10 +671,10 @@ def main():
 		check_selection_specified_correctly(config, config_path)
 		if reset_edit:
 			logging.info('Reset the last edited day of all items to today.')
-			names, preped_changes = prep_set_edit_date(munki_path, overwrite=True)
+			names, preped_changes = prep_set_edit_date(munki_path, config, overwrite=True)
 		elif set_edit:
 			logging.info('Setting all missing last edited days to today.')
-			names, preped_changes = prep_set_edit_date(munki_path)
+			names, preped_changes = prep_set_edit_date(munki_path, config)
 		elif promote_from_days:
 			if not promotion:
 				logging.error("Command line argument `days-before-promote-from` must be accompanied by command line argument `promotion` to run, but this is not the case.")
@@ -682,7 +682,7 @@ def main():
 				sys.exit(1)
 			else:
 				logging.info(f'Setting all missing last edited days for items that meet the `promote_from` conditions for "{promotion}", under the assumption that it took {promote_from_days} days to be promoted to the current catalog(s).')
-				names, preped_changes = prep_set_edit_date(munki_path, promotion=promotion, promote_from_days=promote_from_days, config=config, config_path=config_path)
+				names, preped_changes = prep_set_edit_date(munki_path, config, promotion=promotion, promote_from_days=promote_from_days, config=config, config_path=config_path)
 		if names:
 			s = f'The metadata of the following items will be updated: {and_str(names)}'
 			if auto or user_confirm(s):
