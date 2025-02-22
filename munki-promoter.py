@@ -518,7 +518,7 @@ def try_add_metadata(item_path, item):
 	except OSError as e:
 			logging.warning(f"File {item_path} is missing metadata and this file can not be written to.", exc_info=True)
 
-def prep_set_edit_date(munki_path, config, overwrite=False, promotion=None, promote_from_days=None, config=None, config_path=None):
+def prep_set_edit_date(munki_path, config, overwrite=False, promotion=None, promote_from_days=None, config_path=None):
 	if promotion:
 		if config and "promotions" in config and type(config["promotions"]) == dict:
 			promotions = config["promotions"]
@@ -682,7 +682,7 @@ def main():
 				sys.exit(1)
 			else:
 				logging.info(f'Setting all missing last edited days for items that meet the `promote_from` conditions for "{promotion}", under the assumption that it took {promote_from_days} days to be promoted to the current catalog(s).')
-				names, preped_changes = prep_set_edit_date(munki_path, config, promotion=promotion, promote_from_days=promote_from_days, config=config, config_path=config_path)
+				names, preped_changes = prep_set_edit_date(munki_path, config, promotion=promotion, promote_from_days=promote_from_days, config_path=config_path)
 		if names:
 			s = f'The metadata of the following items will be updated: {and_str(names)}'
 			if auto or user_confirm(s):
