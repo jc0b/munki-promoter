@@ -524,7 +524,7 @@ def prep_set_edit_date(munki_path, config, overwrite=False, promotion=None, prom
 			promotions = config["promotions"]
 			if does_promotion_exist(promotion, promotions):
 				_, promote_from, _, custom_items = get_promotion_info(promotion, promotions, config, config_path)
-				return prep_pkgsinfo_edit_date(munki_path, promote_from=promote_from, promote_from_days=promote_from_days, custom_items=custom_items) 
+				return prep_pkgsinfo_edit_date(munki_path, config, promote_from=promote_from, promote_from_days=promote_from_days, custom_items=custom_items) 
 			else:
 				# error: catalog does not exist
 				logging.error(f'Promotion "{promotion}" not found! Use --list to see valid catalogs to promote. Promotions can be configured in {config_path}.')
