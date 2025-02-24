@@ -83,7 +83,6 @@ def describe_promotion(promotion, promote_to, names, versions, custom_item_descr
 			result += f"{name} - {custom_versions[i]} - will be promoted to {and_str(custom_promote_tos[i])} \n"
 	return result
 
-
 # ----------------------------------------
 # 			Configurations
 # ----------------------------------------
@@ -201,6 +200,21 @@ def get_promotion_info(promotion, promotions, config, config_path):
 		# error: catalog has no promotions
 		logging.error(f'Promotion "{promotion}" improperly defined! Which catalog(s) promotion "{promotion}" promotes to is undefined. Promotions can be configured in {config_path}. Use --list to see valid catalogs to promote.')
 		sys.exit(1)
+
+def check_selection_specified_correctly(config, config_path):
+	if config and "selection" in config:
+		if "type" in config["selection"]:
+			if config["selection"]["type"] == "inclusion":
+				if "items" not in config["selection"] or type(config["selection"]["items"]) != list or len(config["selection"]["items"]) < 1:
+					logging.warning(f"Selection type set to inclusion but no list of items defined in {config_path}. No items will be considered.")
+			elif config["selection"]["type"] == "exclusion":
+				if "items" not in config["selection"] or type(config["selection"]["items"]) != list or len(config["selection"]["items"]) < 1:
+					logging.warning(f"Selection type set to exclusion but no list of items defined in {config_path}. All items will be considered.")
+			elif config["selection"]["type"] != "all":
+				logging.error(f'Selection type set incorrectly in {config_path}. Selection type must be "inclusion", "exclusion", or "all", but was set to {config["selection"]["type"]}.')
+				sys.exit(1)
+		else:
+			logging.warning(f"Selection key found in {config_path}, but no selection type found. All items will be considered.")
 
 # ----------------------------------------
 # 					Slack
@@ -339,7 +353,7 @@ def prep_all_promotions(config, munki_path, config_path):
 						for promotion in config["promotions"]:
 							promote_to, promote_from, days, custom_items = get_promotion_info(promotion, promotions, config, config_path)
 							item_name, item_version, item_promotion, custom_promote_to = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
-							if item_name: # would be None if not eligible for promotion
+							if item_name and check_selection(config, item_name): # would be None if not eligible for promotion
 								if not (promotion in names):
 									# first of this promotion type
 									names[promotion] = []
@@ -399,7 +413,7 @@ def prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items,
 					pkginfo = plistlib.load(fp, fmt=None)
 					# prep individual pkginfo for promotion
 					item_name, item_version, item_promotion, custom_promote_to = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
-					if item_name: # would be None if not eligible for promotion
+					if item_name and check_selection(config, item_name): # would be None if not eligible for promotion
 						if custom_promote_to:
 							custom_item_descriptions["names"].append(item_name)
 							custom_item_descriptions["versions"].append(item_version)
@@ -504,13 +518,13 @@ def try_add_metadata(item_path, item):
 	except OSError as e:
 			logging.warning(f"File {item_path} is missing metadata and this file can not be written to.", exc_info=True)
 
-def prep_set_edit_date(munki_path, overwrite=False, promotion=None, promote_from_days=None, config=None, config_path=None):
+def prep_set_edit_date(munki_path, config, overwrite=False, promotion=None, promote_from_days=None, config_path=None):
 	if promotion:
 		if config and "promotions" in config and type(config["promotions"]) == dict:
 			promotions = config["promotions"]
 			if does_promotion_exist(promotion, promotions):
 				_, promote_from, _, custom_items = get_promotion_info(promotion, promotions, config, config_path)
-				return prep_pkgsinfo_edit_date(munki_path, promote_from=promote_from, promote_from_days=promote_from_days, custom_items=custom_items) 
+				return prep_pkgsinfo_edit_date(munki_path, config, promote_from=promote_from, promote_from_days=promote_from_days, custom_items=custom_items) 
 			else:
 				# error: catalog does not exist
 				logging.error(f'Promotion "{promotion}" not found! Use --list to see valid catalogs to promote. Promotions can be configured in {config_path}.')
@@ -522,7 +536,7 @@ def prep_set_edit_date(munki_path, overwrite=False, promotion=None, promote_from
 	else:
 		return prep_pkgsinfo_edit_date(munki_path, overwrite=overwrite) 
 
-def prep_pkgsinfo_edit_date(munki_path, overwrite=False, promote_from=None, promote_from_days=None, custom_items=None):
+def prep_pkgsinfo_edit_date(munki_path, config, overwrite=False, promote_from=None, promote_from_days=None, custom_items=None):
 	names = []
 	changes = []
 	for file in get_munki_paths(munki_path):
@@ -534,7 +548,7 @@ def prep_pkgsinfo_edit_date(munki_path, overwrite=False, promote_from=None, prom
 					pkginfo = plistlib.load(fp, fmt=None)
 					# prep individual pkginfo for promotion
 					item_name, item = prep_item_edit_date(pkginfo, file, overwrite, promote_from, promote_from_days, custom_items)
-					if item_name: # would be None if not eligible for promotion
+					if item_name and check_selection(config, item_name): # would be None if not eligible for promotion
 						names.append(item_name)
 						changes.append(item)
 				except plistlib.InvalidFileException as e:
@@ -579,6 +593,18 @@ def prep_item_edit_date(item, item_path, overwrite, promote_from, promote_from_d
 			item["_metadata"]["munki-promoter_edit_date"] = today
 			return item_name, (item_path, item)
 	return None, None
+
+def check_selection(config, item_name):
+	if config and "selection" in config and "type" in config["selection"]:
+		if config["selection"]["type"] == "inclusion":
+			if "items" not in config["selection"] or type(config["selection"]["items"]) != list:
+				return False
+			return item_name in config["selection"]["items"]
+		elif config["selection"]["type"] == "exclusion":
+			if "items" not in config["selection"] or type(config["selection"]["items"]) != list:
+				return True
+			return item_name not in config["selection"]["items"]
+	return True
 
 # ----------------------------------------
 #              User input
@@ -642,12 +668,13 @@ def main():
 	config = get_config(config_path, is_config_specified)
 
 	if reset_edit or set_edit or promote_from_days:
+		check_selection_specified_correctly(config, config_path)
 		if reset_edit:
 			logging.info('Reset the last edited day of all items to today.')
-			names, preped_changes = prep_set_edit_date(munki_path, overwrite=True)
+			names, preped_changes = prep_set_edit_date(munki_path, config, overwrite=True)
 		elif set_edit:
 			logging.info('Setting all missing last edited days to today.')
-			names, preped_changes = prep_set_edit_date(munki_path)
+			names, preped_changes = prep_set_edit_date(munki_path, config)
 		elif promote_from_days:
 			if not promotion:
 				logging.error("Command line argument `days-before-promote-from` must be accompanied by command line argument `promotion` to run, but this is not the case.")
@@ -655,7 +682,7 @@ def main():
 				sys.exit(1)
 			else:
 				logging.info(f'Setting all missing last edited days for items that meet the `promote_from` conditions for "{promotion}", under the assumption that it took {promote_from_days} days to be promoted to the current catalog(s).')
-				names, preped_changes = prep_set_edit_date(munki_path, promotion=promotion, promote_from_days=promote_from_days, config=config, config_path=config_path)
+				names, preped_changes = prep_set_edit_date(munki_path, config, promotion=promotion, promote_from_days=promote_from_days, config_path=config_path)
 		if names:
 			s = f'The metadata of the following items will be updated: {and_str(names)}'
 			if auto or user_confirm(s):
@@ -671,6 +698,7 @@ def main():
 		print_promotions(config, config_path)
 
 	elif promotion:
+		check_selection_specified_correctly(config, config_path)
 		names, versions, custom_item_descriptions, preped_promotions, promote_to = prep_single_promotion(promotion, config, munki_path, config_path)
 		if names:
 			s = describe_promotion(promotion, promote_to, names, versions, custom_item_descriptions)
@@ -691,6 +719,7 @@ def main():
 			logging.info("No items need to be promoted.")
 
 	else:
+		check_selection_specified_correctly(config, config_path)
 		names_dict, versions_dict, custom_item_descriptions_dict, preped_promotions, promote_tos = prep_all_promotions(config, munki_path, config_path)
 		if len(names_dict) > 0:
 			s = ""
