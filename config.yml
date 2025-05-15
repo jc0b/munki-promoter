@@ -1,10 +1,14 @@
 ---
   promotions:
-    autopkg:
+    "autopkg to testing":
+      promote_from:
+        - "autopkg"
       promote_to:
         - "testing"
       days_in_catalog: 3
-    testing:
+    "testing to production":
+      promote_from:
+        - "testing"
       promote_to:
         - "production"
       days_in_catalog: 7

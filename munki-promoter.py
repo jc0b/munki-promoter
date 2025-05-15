@@ -435,7 +435,15 @@ def prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items,
 def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, item_path):
 	changed_promote_to = False
 	try:
-		item_name = item["name"]
+
+		item_architecture = item.get("supported_architectures", [])
+
+		if item_architecture:
+			item_architecture = f" ({', '.join(item_architecture)})"
+		else:
+			item_architecture = ""
+
+		item_name = item["name"] + item_architecture
 		item_version = item["version"]
 		item_catalogs = item["catalogs"]
 	except Exception as e:
