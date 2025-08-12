@@ -392,7 +392,7 @@ def prep_single_promotion(promotion, config, munki_path, config_path):
 		promotions = config["promotions"]
 		if does_promotion_exist(promotion, promotions):
 			promote_to, promote_from, days, custom_items = get_promotion_info(promotion, promotions, config, config_path)
-			names, version, custom_item_descriptions, promotions = prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items, munki_path) 
+			names, version, custom_item_descriptions, promotions = prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items, munki_path, config)
 			return names, version, custom_item_descriptions, promotions, promote_to
 		else:
 			# error: catalog does not exist
@@ -403,7 +403,7 @@ def prep_single_promotion(promotion, config, munki_path, config_path):
 		logging.error(f'No promotions are currently defined in {config_path}.')
 		sys.exit(1)
 
-def prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items, munki_path):
+def prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items, munki_path, config):
 	names = []
 	versions = []
 	promotions = []
