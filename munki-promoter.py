@@ -220,6 +220,10 @@ def check_selection_specified_correctly(config, config_path):
 # 					Slack
 # ----------------------------------------
 def send_slack_webhook(slack_url, slack_blocks):
+	parsed_url = urllib.parse.urlparse(slack_url)
+	if parsed_url.scheme != "https":
+		logging.error("Slack webhook URL must use HTTPS.")
+		sys.exit(1)
 	context_block = {"type": "context", "elements": [{"type": "mrkdwn", "text": ":monkey_face: This message brought to you by <https://github.com/jc0b/munki-promoter|munki-promoter>."}]}
 	slack_blocks.append(context_block)
 	slack_blocks.append({"type": "divider"})
@@ -227,7 +231,7 @@ def send_slack_webhook(slack_url, slack_blocks):
 	data = json.dumps(slack_dict).encode('utf-8') #data should be in bytes
 	headers = {'Content-Type': 'application/json'}
 	req = urllib.request.Request(slack_url, data, headers)
-	resp = urllib.request.urlopen(req, context=ssl.create_default_context(cafile=certifi.where()))
+	resp = urllib.request.urlopen(req, context=ssl.create_default_context(cafile=certifi.where()))  # nosec B310
 	response = resp.read()
 	if(resp.status == 200):
 		logging.info("Slack webhook sent successfully!")
@@ -388,7 +392,7 @@ def prep_single_promotion(promotion, config, munki_path, config_path):
 		promotions = config["promotions"]
 		if does_promotion_exist(promotion, promotions):
 			promote_to, promote_from, days, custom_items = get_promotion_info(promotion, promotions, config, config_path)
-			names, version, custom_item_descriptions, promotions = prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items, munki_path) 
+			names, version, custom_item_descriptions, promotions = prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items, munki_path, config)
 			return names, version, custom_item_descriptions, promotions, promote_to
 		else:
 			# error: catalog does not exist
@@ -399,7 +403,7 @@ def prep_single_promotion(promotion, config, munki_path, config_path):
 		logging.error(f'No promotions are currently defined in {config_path}.')
 		sys.exit(1)
 
-def prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items, munki_path):
+def prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items, munki_path, config):
 	names = []
 	versions = []
 	promotions = []
