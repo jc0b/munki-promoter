@@ -545,7 +545,7 @@ def prep_set_edit_date(munki_path, config, overwrite=False, promotion=None, prom
 			logging.error(f'No promotions are currently defined in {config_path}.')
 			sys.exit(1)
 	else:
-		return prep_pkgsinfo_edit_date(munki_path, overwrite=overwrite) 
+		return prep_pkgsinfo_edit_date(munki_path, config, overwrite=overwrite)
 
 def prep_pkgsinfo_edit_date(munki_path, config, overwrite=False, promote_from=None, promote_from_days=None, custom_items=None):
 	names = []
