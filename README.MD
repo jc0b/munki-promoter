@@ -3,6 +3,8 @@
 
 You can read more about `munki-promoter` [here](https://jc0b.computer/posts/munki-promoter-automatic-munki).
 
+If you're a member of [the MacAdmins Slack](https://www.macadmins.org), you can join us in the [`#munki-promoter`](https://macadmins.slack.com/archives/C07KM2K9HT2) channel!
+
 ## Getting started
 To get started with `munki-promoter`, you should read the ["Getting Started" page](https://github.com/jc0b/munki-promoter/wiki/Home) in the wiki.
 
