@@ -365,11 +365,17 @@ def prep_all_promotions(config, munki_path, config_path):
 									custom_item_descriptions[promotion] = {"names": [], "versions": [], "promote_tos": []}
 									promote_tos[promotion] = promote_to
 								if custom_promote_to:
-									custom_item_descriptions[promotion]["names"].append(item_name)
+									if "supported_architectures" in pkginfo:
+										custom_item_descriptions[promotion]["names"].append(item_name + f" ({', '.join(pkginfo['supported_architectures'])})")
+									else:
+										custom_item_descriptions[promotion]["names"].append(item_name)
 									custom_item_descriptions[promotion]["versions"].append(item_version)
 									custom_item_descriptions[promotion]["promote_tos"].append(custom_promote_to)
 								else:
-									names[promotion].append(item_name)
+									if "supported_architectures" in pkginfo:
+										names[promotion].append(item_name + f" ({', '.join(pkginfo['supported_architectures'])})")
+									else:
+										names[promotion].append(item_name)
 									versions[promotion].append(item_version)
 								prepped_promotions.append(item_promotion)
 								break
@@ -419,11 +425,17 @@ def prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items,
 					item_name, item_version, item_promotion, custom_promote_to = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
 					if item_name and check_selection(config, item_name): # would be None if not eligible for promotion
 						if custom_promote_to:
-							custom_item_descriptions["names"].append(item_name)
+							if "supported_architectures" in pkginfo:
+								custom_item_descriptions["names"].append(item_name + f" ({', '.join(pkginfo['supported_architectures'])})")
+							else:
+								custom_item_descriptions["names"].append(item_name)
 							custom_item_descriptions["versions"].append(item_version)
 							custom_item_descriptions["promote_tos"].append(custom_promote_to)
 						else:
-							names.append(item_name)
+							if "supported_architectures" in pkginfo:
+								names.append(item_name + f" ({', '.join(pkginfo['supported_architectures'])})")
+							else:
+								names.append(item_name)
 							versions.append(item_version)
 						promotions.append(item_promotion)
 				except plistlib.InvalidFileException as e:
@@ -438,15 +450,8 @@ def prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items,
 
 def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, item_path):
 	changed_promote_to = False
-	try:
-		item_architecture = item.get("supported_architectures", [])
-		
-		if item_architecture:
-			item_architecture = f" ({', '.join(item_architecture)})"
-		else:
-			item_architecture = ""
-		
-		item_name = item["name"] + item_architecture
+	try:		
+		item_name = item["name"]
 		item_version = item["version"]
 		item_catalogs = item["catalogs"]
 	except Exception as e:
