@@ -26,6 +26,7 @@ DEFAULT_CONFIG = {
 
 CONFIG_FILE = "config.yml"
 MUNKI_PATH='/Users/Shared/munki-repo/pkgsinfo'
+EVAL_TIME = None  # Set via --as-of to evaluate eligibility at a specific time today
 
 _BOOLMAP = {
 	'y': True,
@@ -346,6 +347,7 @@ def prep_all_promotions(config, munki_path, config_path):
 	promote_tos = dict()
 	if config and "promotions" in config and type(config["promotions"]) == dict:
 		promotions = config["promotions"]
+		logged_promotions = set()
 		for file in get_munki_paths(munki_path):
 			try:
 				# open file
@@ -356,6 +358,9 @@ def prep_all_promotions(config, munki_path, config_path):
 						# prep individual pkginfo for promotion
 						for promotion in config["promotions"]:
 							promote_to, promote_from, days, custom_items = get_promotion_info(promotion, promotions, config, config_path)
+							if promotion not in logged_promotions:
+								logging.info(f'Evaluating promotion "{promotion}" (from {promote_from} to {promote_to}, default {days}d)')
+								logged_promotions.add(promotion)
 							item_name, item_version, item_promotion, custom_promote_to = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
 							if item_name and check_selection(config, item_name): # would be None if not eligible for promotion
 								if not (promotion in names):
@@ -470,13 +475,21 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 	if set(item_catalogs) == set(promote_from): # convert to set so order doesn't matter
 		# check if eligable for promotion based on days
 		today = datetime.datetime.now()
+		eval_time = EVAL_TIME if EVAL_TIME else today
 		last_edited_date = today
+		date_source = "today (no metadata)"
 		if "_metadata" in item:
 			if "munki-promoter_edit_date" in item["_metadata"]:
 				last_edited_date = item["_metadata"]["munki-promoter_edit_date"]
+				date_source = "munki-promoter_edit_date"
 			elif "creation_date" in item["_metadata"]:
 				last_edited_date = item["_metadata"]["creation_date"]
-				logging.info(f"File {item_path} is missing a last edit date so the creation date {last_edited_date} will be used with the assumption that this item has been in the current catalog(s) since creation.")
+				date_source = "creation_date"
+				# Persist the derived edit date so subsequent runs are stable
+				# and don't keep re-logging this inference.
+				logging.info(f"File {item_path} is missing a last edit date — setting it to creation_date {last_edited_date}.")
+				item["_metadata"]["munki-promoter_edit_date"] = last_edited_date
+				try_add_metadata(item_path, item)
 			else:
 				item["_metadata"]["munki-promoter_edit_date"] = today
 				logging.info(f"File {item_path} is missing a creation date so munki-promoter will set the last edit date to today.")
@@ -485,14 +498,19 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 			item["_metadata"] = {"munki-promoter_edit_date": today}
 			logging.info(f"File {item_path} is missing a creation date so munki-promoter will set the last edit date to today.")
 			try_add_metadata(item_path, item)
-		if last_edited_date + datetime.timedelta(days=days) < today:
+		promote_after = last_edited_date + datetime.timedelta(days=days)
+		if promote_after < eval_time:
 			# up for promotion!
+			logging.info(f"  {item_name} {item_version}: PROMOTE ({date_source}={last_edited_date}, needed {days}d, eligible since {promote_after})")
 			item["catalogs"] = promote_to
 			item["_metadata"]["munki-promoter_edit_date"] = today
 			if changed_promote_to:
 				return item_name, item_version, (item_path, item), promote_to
 			else:
 				return item_name, item_version, (item_path, item), None
+		else:
+			hours_left = (promote_after - eval_time).total_seconds() / 3600
+			logging.info(f"  {item_name} {item_version}: wait ({date_source}={last_edited_date}, need {days}d, eligible after {promote_after}, ~{hours_left:.1f}h remaining)")
 	return None, None, None, None
 
 def promote_items(preped_promotions):
@@ -655,6 +673,10 @@ def process_options():
 						help=f'Optional file name to print markdown summary of promotions.')
 	parser.add_option('--auto', '-a', dest='auto', action='store_true',
 						help='Run without interaction.')
+	parser.add_option('--dry-run', dest='dry_run', action='store_true',
+						help='Preview what would be promoted without making changes. Implies --auto.')
+	parser.add_option('--as-of', dest='as_of_utc_hour', type='int',
+						help='Evaluate eligibility as of this UTC hour today (e.g. 18 for 18:00 UTC). Useful for preview runs that need to match a later scheduled promotion time.')
 	parser.add_option('--reset-edit-date', dest='reset_edit', action='store_true',
 						help='Reset the last edited day of all items to today.')
 	parser.add_option('--set-unknown-edit-date', dest='set_edit', action='store_true',
@@ -666,10 +688,14 @@ def process_options():
 	slack_url = options.slack_url
 	if (not slack_url) and os.environ.get("SLACK_WEBHOOK"):
 		slack_url = os.environ.get("SLACK_WEBHOOK")
+	# dry-run implies auto (no interactive confirmation makes sense in preview)
+	auto = options.auto or options.dry_run
+	dry_run = options.dry_run
+	as_of_utc_hour = options.as_of_utc_hour
 	# return based on config file option
 	if options.config_file:
-		return options.promotion, options.list, options.munki_path, options.config_file, True, slack_url, options.markdown_path, options.auto, options.reset_edit, options.set_edit, options.promote_from_days
-	return options.promotion, options.list, options.munki_path, CONFIG_FILE, False, slack_url, options.markdown_path, options.auto, options.reset_edit, options.set_edit, options.promote_from_days
+		return options.promotion, options.list, options.munki_path, options.config_file, True, slack_url, options.markdown_path, auto, options.reset_edit, options.set_edit, options.promote_from_days, dry_run, as_of_utc_hour
+	return options.promotion, options.list, options.munki_path, CONFIG_FILE, False, slack_url, options.markdown_path, auto, options.reset_edit, options.set_edit, options.promote_from_days, dry_run, as_of_utc_hour
 
 def setup_logging():
 	logging.basicConfig(
@@ -680,8 +706,14 @@ def setup_logging():
 
 def main():
 	setup_logging()
-	promotion, show_list, munki_path, config_path, is_config_specified, slack_url, md_path, auto, reset_edit, set_edit, promote_from_days = process_options()
+	promotion, show_list, munki_path, config_path, is_config_specified, slack_url, md_path, auto, reset_edit, set_edit, promote_from_days, dry_run, as_of_utc_hour = process_options()
 	config = get_config(config_path, is_config_specified)
+
+	global EVAL_TIME
+	if as_of_utc_hour is not None:
+		now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+		EVAL_TIME = now.replace(hour=as_of_utc_hour, minute=0, second=0, microsecond=0)
+		logging.info(f"Evaluating eligibility as of {EVAL_TIME} UTC (--as-of {as_of_utc_hour})")
 
 	if reset_edit or set_edit or promote_from_days:
 		check_selection_specified_correctly(config, config_path)
@@ -720,7 +752,10 @@ def main():
 			s = describe_promotion(promotion, promote_to, names, versions, custom_item_descriptions)
 			if auto or user_confirm(s):
 				# apply changes
-				promote_items(preped_promotions)
+				if dry_run:
+					logging.info('Dry run — skipping file writes.')
+				else:
+					promote_items(preped_promotions)
 				# notify about changes
 				if slack_url:
 					blocks = setup_slack_blocks()
@@ -744,7 +779,10 @@ def main():
 					s += describe_promotion(promotion, promote_tos[promotion], names_dict[promotion], versions_dict[promotion], custom_item_descriptions_dict[promotion])
 			if auto or user_confirm(s):
 				# apply changes
-				promote_items(preped_promotions)
+				if dry_run:
+					logging.info('Dry run — skipping file writes.')
+				else:
+					promote_items(preped_promotions)
 				# notify about changes
 				if slack_url:
 					blocks = setup_slack_blocks()
