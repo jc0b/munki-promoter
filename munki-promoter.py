@@ -5,6 +5,7 @@
 # adapted from a script by Arjen van Bochoven (https://github.com/bochoven)
 
 import datetime
+import fnmatch
 import plistlib
 import logging
 import os
@@ -457,15 +458,25 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 	except Exception as e:
 		logging.error(f"File {item_path} is missing expected keys.", exc_info=True)
 		sys.exit(1)
-	# check if custom item
+	# check if custom item: exact match first, then glob/wildcard patterns
+	# (first match wins; patterns are matched case-sensitively via fnmatchcase)
+	custom = None
 	if item_name in custom_items and type(custom_items[item_name]) == dict:
-		if "days_in_catalog" in custom_items[item_name]:
-			days = custom_items[item_name]["days_in_catalog"]
-		if "promote_to" in custom_items[item_name] and type(custom_items[item_name]["promote_to"]) == list and len(custom_items[item_name]["promote_to"]) > 0:
-			promote_to = custom_items[item_name]["promote_to"]
+		custom = custom_items[item_name]
+	else:
+		for pattern, opts in custom_items.items():
+			if '*' in pattern or '?' in pattern or '[' in pattern:
+				if fnmatch.fnmatchcase(item_name, pattern) and type(opts) == dict:
+					custom = opts
+					break
+	if custom:
+		if "days_in_catalog" in custom:
+			days = custom["days_in_catalog"]
+		if "promote_to" in custom and type(custom["promote_to"]) == list and len(custom["promote_to"]) > 0:
+			promote_to = custom["promote_to"]
 			changed_promote_to = True
-		if "promote_from" in custom_items[item_name] and type(custom_items[item_name]["promote_from"]) == list and len(custom_items[item_name]["promote_from"]) > 0:
-			promote_from = custom_items[item_name]["promote_from"]
+		if "promote_from" in custom and type(custom["promote_from"]) == list and len(custom["promote_from"]) > 0:
+			promote_from = custom["promote_from"]
 	# check if eligable for promotion based on current catalogs
 	if set(item_catalogs) == set(promote_from): # convert to set so order doesn't matter
 		# check if eligable for promotion based on days
@@ -585,10 +596,19 @@ def prep_item_edit_date(item, item_path, overwrite, promote_from, promote_from_d
 	except Exception as e:
 		logging.error(f"File {item_path} is missing expected keys.", exc_info=True)
 		sys.exit(1)
-	# if for a specific promotion, check if custom item
-	if promote_from and (item_name in custom_items and type(custom_items[item_name]) == dict):
-		if "promote_from" in custom_items[item_name] and type(custom_items[item_name]["promote_from"]) == list and len(custom_items[item_name]["promote_from"]) > 0:
-			promote_from = custom_items[item_name]["promote_from"]
+	# if for a specific promotion, check if custom item (exact then glob)
+	if promote_from:
+		custom = None
+		if item_name in custom_items and type(custom_items[item_name]) == dict:
+			custom = custom_items[item_name]
+		else:
+			for pattern, opts in custom_items.items():
+				if '*' in pattern or '?' in pattern or '[' in pattern:
+					if fnmatch.fnmatchcase(item_name, pattern) and type(opts) == dict:
+						custom = opts
+						break
+		if custom and "promote_from" in custom and type(custom["promote_from"]) == list and len(custom["promote_from"]) > 0:
+			promote_from = custom["promote_from"]
 	# check if overwriting or if value missing
 	if not "_metadata" in item:
 		item["_metadata"] = dict()
