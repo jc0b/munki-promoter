@@ -450,13 +450,19 @@ def prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items,
 
 def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, item_path):
 	changed_promote_to = False
-	try:		
+	try:
 		item_name = item["name"]
 		item_version = item["version"]
-		item_catalogs = item["catalogs"]
-	except Exception as e:
-		logging.error(f"File {item_path} is missing expected keys.", exc_info=True)
+	except KeyError as e:
+		logging.error(f"File {item_path} is missing required key {e}.", exc_info=True)
 		sys.exit(1)
+	# `catalogs` is optional in pkginfo. An item with no catalogs isn't in
+	# any catalog, so it can't be promoted — skip with a warning rather than
+	# exiting.
+	item_catalogs = item.get("catalogs")
+	if not item_catalogs:
+		logging.warning(f"File {item_path} has no 'catalogs' set — skipping (not eligible for any promotion).")
+		return None, None, None, None
 	# check if custom item
 	if item_name in custom_items and type(custom_items[item_name]) == dict:
 		if "days_in_catalog" in custom_items[item_name]:
@@ -580,11 +586,15 @@ def prep_pkgsinfo_edit_date(munki_path, config, overwrite=False, promote_from=No
 def prep_item_edit_date(item, item_path, overwrite, promote_from, promote_from_days, custom_items):
 	try:
 		item_name = item["name"]
-		if promote_from:
-			item_catalogs = item["catalogs"]
-	except Exception as e:
-		logging.error(f"File {item_path} is missing expected keys.", exc_info=True)
+	except KeyError as e:
+		logging.error(f"File {item_path} is missing required key {e}.", exc_info=True)
 		sys.exit(1)
+	if promote_from:
+		# `catalogs` is optional; skip with warning when missing or empty.
+		item_catalogs = item.get("catalogs")
+		if not item_catalogs:
+			logging.warning(f"File {item_path} has no 'catalogs' set — skipping (not eligible for any promotion).")
+			return None, None
 	# if for a specific promotion, check if custom item
 	if promote_from and (item_name in custom_items and type(custom_items[item_name]) == dict):
 		if "promote_from" in custom_items[item_name] and type(custom_items[item_name]["promote_from"]) == list and len(custom_items[item_name]["promote_from"]) > 0:
