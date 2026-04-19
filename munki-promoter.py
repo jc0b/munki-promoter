@@ -13,7 +13,10 @@ import optparse
 import urllib.request
 import urllib.parse
 import json
+import re
 import ssl
+
+import yaml
 
 DEFAULT_CONFIG = {
 	"promotions": {
@@ -43,7 +46,127 @@ _BOOLMAP = {
 }
 
 using_default_config = False
-	
+
+# ----------------------------------------
+# 			File I/O helpers (YAML + plist)
+# ----------------------------------------
+
+def _is_yaml_file(filepath):
+	"""Return True if the file is YAML based on extension."""
+	return filepath.lower().endswith(('.yaml', '.yml'))
+
+
+def _normalize_datetime(value):
+	"""Convert ISO date strings to datetime objects for consistent comparison.
+
+	PyYAML's safe_load parses plain-scalar timestamps to datetime already, but
+	quoted strings stay as str — normalize both cases so arithmetic works.
+	"""
+	if isinstance(value, datetime.datetime):
+		return value
+	if isinstance(value, datetime.date):
+		return datetime.datetime(value.year, value.month, value.day)
+	if isinstance(value, str):
+		for fmt in ('%Y-%m-%dT%H:%M:%SZ', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+			try:
+				return datetime.datetime.strptime(value, fmt)
+			except ValueError:
+				continue
+	return None
+
+
+def _normalize_metadata_dates(data):
+	"""Ensure _metadata date fields are datetime objects after loading."""
+	if "_metadata" in data and isinstance(data["_metadata"], dict):
+		for key in ("creation_date", "munki-promoter_edit_date"):
+			if key in data["_metadata"]:
+				dt = _normalize_datetime(data["_metadata"][key])
+				if dt is not None:
+					data["_metadata"][key] = dt
+	return data
+
+
+def load_pkginfo(filepath):
+	"""Load a pkgsinfo file (YAML or plist) and return a dict."""
+	if _is_yaml_file(filepath):
+		with open(filepath, "r", encoding="utf-8") as fp:
+			data = yaml.safe_load(fp)
+			if not isinstance(data, dict):
+				raise ValueError(f"YAML file {filepath} did not parse to a dict")
+			return _normalize_metadata_dates(data)
+	else:
+		with open(filepath, "rb") as fp:
+			return plistlib.load(fp, fmt=None)
+
+
+def _save_yaml_pkginfo(filepath, data):
+	"""Surgically update `catalogs` and `_metadata` in a YAML file.
+
+	We rewrite only those sections via regex rather than re-serialising with
+	yaml.dump so comments, key ordering, and formatting elsewhere in the file
+	are preserved. A round-trip dumper (e.g. ruamel.yaml) would be cleaner but
+	would add a dependency and still risks reformatting style choices.
+	"""
+	with open(filepath, "r", encoding="utf-8") as fp:
+		content = fp.read()
+
+	# Update catalogs section
+	catalogs = data.get('catalogs', [])
+	new_catalogs = 'catalogs:\n' + ''.join(f'- {c}\n' for c in catalogs)
+	content = re.sub(
+		r'^catalogs:\n(?:- .+\n)+',
+		new_catalogs,
+		content,
+		count=1,
+		flags=re.MULTILINE
+	)
+
+	# Update munki-promoter_edit_date in _metadata
+	metadata = data.get('_metadata', {})
+	edit_date = metadata.get('munki-promoter_edit_date')
+	if edit_date:
+		if isinstance(edit_date, datetime.datetime):
+			date_str = f"'{edit_date.strftime('%Y-%m-%dT%H:%M:%SZ')}'"
+		else:
+			date_str = f"'{edit_date}'"
+		edit_line = f'  munki-promoter_edit_date: {date_str}\n'
+
+		if re.search(r'^_metadata:', content, re.MULTILINE):
+			if re.search(r'^\s+munki-promoter_edit_date:', content, re.MULTILINE):
+				content = re.sub(
+					r'^(\s+munki-promoter_edit_date:).*\n',
+					edit_line,
+					content,
+					count=1,
+					flags=re.MULTILINE
+				)
+			else:
+				content = re.sub(
+					r'^(_metadata:\n)',
+					r'\g<1>' + edit_line,
+					content,
+					count=1,
+					flags=re.MULTILINE
+				)
+		else:
+			if not content.endswith('\n'):
+				content += '\n'
+			content += f'_metadata:\n{edit_line}'
+
+	with open(filepath, "w", encoding="utf-8") as fp:
+		fp.write(content)
+
+
+def save_pkginfo(filepath, data):
+	"""Write a pkgsinfo dict back to disk in the original format."""
+	if _is_yaml_file(filepath):
+		_save_yaml_pkginfo(filepath, data)
+	else:
+		with open(filepath, "rb+") as fp:
+			fp.seek(0)
+			plistlib.dump(data, fp, fmt=plistlib.FMT_XML)
+			fp.truncate()
+
 # ----------------------------------------
 # 				Strings
 # ----------------------------------------
@@ -88,8 +211,6 @@ def describe_promotion(promotion, promote_to, names, versions, custom_item_descr
 # ----------------------------------------
 def get_config(config_path, is_config_specified) -> dict:
 	try:
-		global yaml
-		import yaml
 		if not os.path.exists(config_path):
 			# import success BUT no file 
 			if is_config_specified:
@@ -348,43 +469,35 @@ def prep_all_promotions(config, munki_path, config_path):
 		promotions = config["promotions"]
 		for file in get_munki_paths(munki_path):
 			try:
-				# open file
-				with open(file, "rb+") as fp:
-					try:
-						# load file
-						pkginfo = plistlib.load(fp, fmt=None)
-						# prep individual pkginfo for promotion
-						for promotion in config["promotions"]:
-							promote_to, promote_from, days, custom_items = get_promotion_info(promotion, promotions, config, config_path)
-							item_name, item_version, item_promotion, custom_promote_to = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
-							if item_name and check_selection(config, item_name): # would be None if not eligible for promotion
-								if not (promotion in names):
-									# first of this promotion type
-									names[promotion] = []
-									versions[promotion] = []
-									custom_item_descriptions[promotion] = {"names": [], "versions": [], "promote_tos": []}
-									promote_tos[promotion] = promote_to
-								if custom_promote_to:
-									if "supported_architectures" in pkginfo:
-										custom_item_descriptions[promotion]["names"].append(item_name + f" ({', '.join(pkginfo['supported_architectures'])})")
-									else:
-										custom_item_descriptions[promotion]["names"].append(item_name)
-									custom_item_descriptions[promotion]["versions"].append(item_version)
-									custom_item_descriptions[promotion]["promote_tos"].append(custom_promote_to)
-								else:
-									if "supported_architectures" in pkginfo:
-										names[promotion].append(item_name + f" ({', '.join(pkginfo['supported_architectures'])})")
-									else:
-										names[promotion].append(item_name)
-									versions[promotion].append(item_version)
-								prepped_promotions.append(item_promotion)
-								break
-					except plistlib.InvalidFileException as e:
-						logging.error(f"Could not load file {file} in munki directory.")
-						logging.error(e, exc_info=True)
-						sys.exit(1)
-			except OSError as e:
-				logging.error(f"Could not open file {file} in munki directory.")
+				pkginfo = load_pkginfo(file)
+				# prep individual pkginfo for promotion
+				for promotion in config["promotions"]:
+					promote_to, promote_from, days, custom_items = get_promotion_info(promotion, promotions, config, config_path)
+					item_name, item_version, item_promotion, custom_promote_to = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
+					if item_name and check_selection(config, item_name): # would be None if not eligible for promotion
+						if not (promotion in names):
+							# first of this promotion type
+							names[promotion] = []
+							versions[promotion] = []
+							custom_item_descriptions[promotion] = {"names": [], "versions": [], "promote_tos": []}
+							promote_tos[promotion] = promote_to
+						if custom_promote_to:
+							if "supported_architectures" in pkginfo:
+								custom_item_descriptions[promotion]["names"].append(item_name + f" ({', '.join(pkginfo['supported_architectures'])})")
+							else:
+								custom_item_descriptions[promotion]["names"].append(item_name)
+							custom_item_descriptions[promotion]["versions"].append(item_version)
+							custom_item_descriptions[promotion]["promote_tos"].append(custom_promote_to)
+						else:
+							if "supported_architectures" in pkginfo:
+								names[promotion].append(item_name + f" ({', '.join(pkginfo['supported_architectures'])})")
+							else:
+								names[promotion].append(item_name)
+							versions[promotion].append(item_version)
+						prepped_promotions.append(item_promotion)
+						break
+			except (OSError, plistlib.InvalidFileException, yaml.YAMLError, ValueError) as e:
+				logging.error(f"Could not load file {file} in munki directory.")
 				logging.error(e, exc_info=True)
 				sys.exit(1)
 		return names, versions, custom_item_descriptions, prepped_promotions, promote_tos
@@ -416,34 +529,26 @@ def prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items,
 	custom_item_descriptions = {"names": [], "versions": [], "promote_tos": []}
 	for file in get_munki_paths(munki_path):
 		try:
-			# open file
-			with open(file, "rb+") as fp:
-				try:
-					# load file
-					pkginfo = plistlib.load(fp, fmt=None)
-					# prep individual pkginfo for promotion
-					item_name, item_version, item_promotion, custom_promote_to = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
-					if item_name and check_selection(config, item_name): # would be None if not eligible for promotion
-						if custom_promote_to:
-							if "supported_architectures" in pkginfo:
-								custom_item_descriptions["names"].append(item_name + f" ({', '.join(pkginfo['supported_architectures'])})")
-							else:
-								custom_item_descriptions["names"].append(item_name)
-							custom_item_descriptions["versions"].append(item_version)
-							custom_item_descriptions["promote_tos"].append(custom_promote_to)
-						else:
-							if "supported_architectures" in pkginfo:
-								names.append(item_name + f" ({', '.join(pkginfo['supported_architectures'])})")
-							else:
-								names.append(item_name)
-							versions.append(item_version)
-						promotions.append(item_promotion)
-				except plistlib.InvalidFileException as e:
-					logging.error(f"Could not load file {file} in munki directory.")
-					logging.error(e, exc_info=True)
-					sys.exit(1)
-		except OSError as e:
-			logging.error(f"Could not open file {file} in munki directory.")
+			pkginfo = load_pkginfo(file)
+			# prep individual pkginfo for promotion
+			item_name, item_version, item_promotion, custom_promote_to = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
+			if item_name and check_selection(config, item_name): # would be None if not eligible for promotion
+				if custom_promote_to:
+					if "supported_architectures" in pkginfo:
+						custom_item_descriptions["names"].append(item_name + f" ({', '.join(pkginfo['supported_architectures'])})")
+					else:
+						custom_item_descriptions["names"].append(item_name)
+					custom_item_descriptions["versions"].append(item_version)
+					custom_item_descriptions["promote_tos"].append(custom_promote_to)
+				else:
+					if "supported_architectures" in pkginfo:
+						names.append(item_name + f" ({', '.join(pkginfo['supported_architectures'])})")
+					else:
+						names.append(item_name)
+					versions.append(item_version)
+				promotions.append(item_promotion)
+		except (OSError, plistlib.InvalidFileException, yaml.YAMLError, ValueError) as e:
+			logging.error(f"Could not load file {file} in munki directory.")
 			logging.error(e, exc_info=True)
 			sys.exit(1)
 	return names, versions, custom_item_descriptions, promotions
@@ -469,7 +574,8 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 	# check if eligable for promotion based on current catalogs
 	if set(item_catalogs) == set(promote_from): # convert to set so order doesn't matter
 		# check if eligable for promotion based on days
-		today = datetime.datetime.now()
+		# Use UTC because _metadata dates (creation_date) are always UTC.
+		today = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 		last_edited_date = today
 		if "_metadata" in item:
 			if "munki-promoter_edit_date" in item["_metadata"]:
@@ -498,41 +604,19 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 def promote_items(preped_promotions):
 	for item_path, item in preped_promotions:
 		try:
-			# open file
-			with open(item_path, "rb+") as fp:
-				try:
-					logging.info(f"Promoting {item_path} to {item['catalogs']}")
-					# make sure we are at start of file
-					fp.seek(0)
-					# write to file
-					plistlib.dump(item, fp, fmt=plistlib.FMT_XML)
-					# remove any excess of old file
-					fp.truncate()
-				except Exception as e:
-					logging.error(f"Could not write to file {item_path} in munki directory.")
-					logging.error(e, exc_info=True)
-					sys.exit(1)
-		except OSError as e:
-			logging.error(f"Could not open file {item_path} in munki directory.")
+			logging.info(f"Promoting {item_path} to {item['catalogs']}")
+			save_pkginfo(item_path, item)
+		except Exception as e:
+			logging.error(f"Could not write to file {item_path} in munki directory.")
 			logging.error(e, exc_info=True)
 			sys.exit(1)
 
 def try_add_metadata(item_path, item):
 	try:
-		# open file
-		with open(item_path, "rb+") as fp:
-			try:
-				logging.info(f"Adding missing metadata to file {item_path}")
-				# make sure we are at start of file
-				fp.seek(0)
-				# write to file
-				plistlib.dump(item, fp, fmt=plistlib.FMT_XML)
-				# remove any excess of old file
-				fp.truncate()
-			except Exception as e:
-				logging.warning(f"File {item_path} is missing metadata and this file can not be written to.", exc_info=True)
-	except OSError as e:
-			logging.warning(f"File {item_path} is missing metadata and this file can not be written to.", exc_info=True)
+		logging.info(f"Adding missing metadata to file {item_path}")
+		save_pkginfo(item_path, item)
+	except Exception as e:
+		logging.warning(f"File {item_path} is missing metadata and this file can not be written to.", exc_info=True)
 
 def prep_set_edit_date(munki_path, config, overwrite=False, promotion=None, promote_from_days=None, config_path=None):
 	if promotion:
@@ -557,22 +641,14 @@ def prep_pkgsinfo_edit_date(munki_path, config, overwrite=False, promote_from=No
 	changes = []
 	for file in get_munki_paths(munki_path):
 		try:
-			# open file
-			with open(file, "rb+") as fp:
-				try:
-					# load file
-					pkginfo = plistlib.load(fp, fmt=None)
-					# prep individual pkginfo for promotion
-					item_name, item = prep_item_edit_date(pkginfo, file, overwrite, promote_from, promote_from_days, custom_items)
-					if item_name and check_selection(config, item_name): # would be None if not eligible for promotion
-						names.append(item_name)
-						changes.append(item)
-				except plistlib.InvalidFileException as e:
-					logging.error(f"Could not load file {file} in munki directory.")
-					logging.error(e, exc_info=True)
-					sys.exit(1)
-		except OSError as e:
-			logging.error(f"Could not open file {file} in munki directory.")
+			pkginfo = load_pkginfo(file)
+			# prep individual pkginfo for promotion
+			item_name, item = prep_item_edit_date(pkginfo, file, overwrite, promote_from, promote_from_days, custom_items)
+			if item_name and check_selection(config, item_name): # would be None if not eligible for promotion
+				names.append(item_name)
+				changes.append(item)
+		except (OSError, plistlib.InvalidFileException, yaml.YAMLError, ValueError) as e:
+			logging.error(f"Could not load file {file} in munki directory.")
 			logging.error(e, exc_info=True)
 			sys.exit(1)
 	return names, changes
@@ -593,7 +669,8 @@ def prep_item_edit_date(item, item_path, overwrite, promote_from, promote_from_d
 	if not "_metadata" in item:
 		item["_metadata"] = dict()
 	if overwrite or (not "munki-promoter_edit_date" in item["_metadata"]):
-		today = datetime.datetime.now()
+		# Use UTC because _metadata dates (creation_date) are always UTC.
+		today = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 		if promote_from:
 			if set(item_catalogs) == set(promote_from):
 				if not "creation_date" in item["_metadata"]:
