@@ -9,7 +9,7 @@ import plistlib
 import logging
 import os
 import sys
-import optparse
+import argparse
 import urllib.request
 import urllib.parse
 import json
@@ -638,38 +638,40 @@ def user_confirm(s):
 # 				Main 
 # ----------------------------------------
 
-def process_options():
-	parser = optparse.OptionParser()
-	parser.set_usage('Usage: %prog [options]')
-	parser.add_option('--promotion', '-p', dest='promotion',
+def process_args():
+	parser = argparse.ArgumentParser(
+		description='`munki-promoter` is a rule-based tool for promoting Munki items between catalogs which, when used with CI, can automate Munki promotions for you.',
+		usage='%(prog)s [options]',
+	)
+	parser.add_argument('-p', '--promotion', action='store', dest='promotion',
 						help='Specifies the name of the promotion to run. If not set, all promotions in the configuration will be run. Use --list to see available promotions.')
-	parser.add_option('--list', '-l', dest='list', action='store_true',
+	parser.add_argument('-l', '--list', action='store_true', dest='list',
 						help='Prints the list of possible promotions.')
-	parser.add_option('--munki', '-m', dest='munki_path', default=MUNKI_PATH,
-						help=f'Optional path to the munki pkginfo directory, defaults to {MUNKI_PATH}')
-	parser.add_option('--yaml', '-y', dest='config_file',
-						help=f'Optional path to the configuration yaml file. Defaults to config.yml if not set. If config.yml does not exist, default configuration will be used.')
-	parser.add_option('--slack', '-s', dest='slack_url',
-						help=f'Optional url for Slack webhooks.')
-	parser.add_option('--markdown', dest='markdown_path',
-						help=f'Optional file name to print markdown summary of promotions.')
-	parser.add_option('--auto', '-a', dest='auto', action='store_true',
-						help='Run without interaction.')
-	parser.add_option('--reset-edit-date', dest='reset_edit', action='store_true',
-						help='Reset the last edited day of all items to today.')
-	parser.add_option('--set-unknown-edit-date', dest='set_edit', action='store_true',
-						help='Set all missing last edited days to today.')
-	parser.add_option('--days-before-current-catalog', dest='promote_from_days', type='int',
-						help='Requires additional command line argument `promotion` to run. For all items that meet the `promote_from` conditions for the given promotion, if the last edit date is unknown it is calculated under the assumption that it took n days to be promoted to the current catalog(s), where n is set by this `days-before-promote-from` argument.')
-	options, _ = parser.parse_args()
-	# check if slack url in env
-	slack_url = options.slack_url
+	parser.add_argument('-m', '--munki', dest='munki_path', default=MUNKI_PATH,
+						help=f'Optional path to the munki pkginfo directory, defaults to {MUNKI_PATH}.')
+	parser.add_argument('--yaml', '-y', dest='config_file',
+					  help=f'Optional path to the configuration yaml file. Defaults to config.yml if not set. If config.yml does not exist, default configuration will be used.')
+	parser.add_argument('--slack', '-s', dest='slack_url',
+					  help=f'Optional url for Slack webhooks.')
+	parser.add_argument('--markdown', dest='markdown_path',
+					  help=f'Optional file name to print markdown summary of promotions.')
+	parser.add_argument('--auto', '-a', dest='auto', action='store_true',
+					  help='Run without interaction.')
+	parser.add_argument('--reset-edit-date', dest='reset_edit', action='store_true',
+					  help='Reset the last edited day of all items to today.')
+	parser.add_argument('--set-unknown-edit-date', dest='set_edit', action='store_true',
+					  help='Set all missing last edited days to today.')
+	parser.add_argument('--days-before-current-catalog', dest='promote_from_days', type=int,
+					  help='Requires additional command line argument `promotion` to run. For all items that meet the `promote_from` conditions for the given promotion, if the last edit date is unknown it is calculated under the assumption that it took n days to be promoted to the current catalog(s), where n is set by this `days-before-promote-from` argument.')
+	args = parser.parse_args()
+
+	slack_url = args.slack_url
 	if (not slack_url) and os.environ.get("SLACK_WEBHOOK"):
 		slack_url = os.environ.get("SLACK_WEBHOOK")
 	# return based on config file option
-	if options.config_file:
-		return options.promotion, options.list, options.munki_path, options.config_file, True, slack_url, options.markdown_path, options.auto, options.reset_edit, options.set_edit, options.promote_from_days
-	return options.promotion, options.list, options.munki_path, CONFIG_FILE, False, slack_url, options.markdown_path, options.auto, options.reset_edit, options.set_edit, options.promote_from_days
+	if args.config_file:
+		return args.promotion, args.list, args.munki_path, args.config_file, True, slack_url, args.markdown_path, args.auto, args.reset_edit, args.set_edit, args.promote_from_days
+	return args.promotion, args.list, args.munki_path, CONFIG_FILE, False, slack_url, args.markdown_path, args.auto, args.reset_edit, args.set_edit, args.promote_from_days
 
 def setup_logging():
 	logging.basicConfig(
@@ -680,7 +682,7 @@ def setup_logging():
 
 def main():
 	setup_logging()
-	promotion, show_list, munki_path, config_path, is_config_specified, slack_url, md_path, auto, reset_edit, set_edit, promote_from_days = process_options()
+	promotion, show_list, munki_path, config_path, is_config_specified, slack_url, md_path, auto, reset_edit, set_edit, promote_from_days = process_args()
 	config = get_config(config_path, is_config_specified)
 
 	if reset_edit or set_edit or promote_from_days:
