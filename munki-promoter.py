@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# authors: Jacob Burley (j@jc0b.computer) and Kai (https://github.com/kaiobendrauf)
+# authors: Jacob Burley (j@jc0b.computer) and Kai Obendrauf (https://github.com/kaiobendrauf)
 
 # adapted from a script by Arjen van Bochoven (https://github.com/bochoven)
 
@@ -129,6 +129,138 @@ def get_config(config_path, is_config_specified) -> dict:
 			logging.warning("PyYAML library could not be loaded, but no configuration file is present. Will continue with default settings.")
 			return DEFAULT_CONFIG
 
+def check_config(config, config_path):
+	if isinstance(config, dict):
+		for key in config:
+			match key:
+				case "promotions":
+					if isinstance(config[key], dict):
+						for promotion in config[key]:
+							check_config_promotion(config[key][promotion], promotion, config_path)
+					else:
+						logging.error(f"Unexpected format of config file. {key} is expected to be type dictionary but is type {type(config[key])}. Please update config file at {config_path}")
+						sys.exit(1)
+				case "default_days_in_catalog":
+					if (not isinstance(config[key], int)):
+						logging.error(f"Unexpected format of config file. {key} is expected to be type int but is type {type(config[key])}. Please update config file at {config_path}")
+						sys.exit(1)
+				case "selections":
+					if isinstance(config[key], list):
+						for i, selection in enumerate(config[key]):
+							check_config_selection(selection, i+1, config_path)
+					else:
+						logging.error(f"Unexpected format of config file. {key} is expected to be type dictionary but is type {type(config[key])}. Please update config file at {config_path}")
+						sys.exit(1)
+				case _:
+					logging.error(f"Unknown key(s) in config file: {str(set(config.keys()).difference(top_level_keys))[1 : -1]}. Please update config file at {config_path}")
+					sys.exit(1)
+	else:
+		logging.error(f"Unexpected format of config file. Expected file in the format of dictionary, but indtead file is formatted as {type(config)}. Please update config file at {config_path}")
+		sys.exit(1)
+	if not ("promotions" in config):
+		logging.error(f"Missing required key \"promotions\" in config file. Please update config file at {config_path}")
+		sys.exit(1)
+
+def check_config_promotion(promotion, promotion_name, config_path):
+	promotion_keys = {"promote_from", "promote_to", "custom_items", "days_in_catalog"}
+	if isinstance(promotion, dict):
+		keys = promotion.keys()
+		if set(keys).issubset(promotion_keys):
+			for key in keys:
+				if key in ["promote_from", "promote_to"]:
+					if not isinstance(promotion[key], list):
+						logging.error(f"Unexpected format of config file. {key} in promotion {promotion_name} is expected to be type list but is type {type(promotion[key])}. Please update config file at {config_path}")
+						sys.exit(1)
+					for el in promotion[key]:
+						if not isinstance(el, str):
+							logging.error(f"Unexpected format of config file. All elements of {key} in promotion {promotion_name} should be type string, but the element {el} is type {type(el)}. Please update config file at {config_path}")
+							sys.exit(1)
+				elif key == "custom_items":
+					if isinstance(promotion[key], dict):
+						for custom_item in promotion[key]:
+							check_config_custom_item(promotion[key][custom_item], custom_item, promotion_name, config_path)
+					else:
+						logging.error(f"Unexpected format of config file. {key} in promotion {promotion_name} is expected to be type dictionary but is type {type(promotion[key])}. Please update config file at {config_path}")
+						sys.exit(1)
+				elif not isinstance(promotion[key], int):
+					logging.error(f"Unexpected format of config file. {key} in promotion {promotion_name} is expected to be type int but is type {type(promotion[key])}. Please update config file.")
+					sys.exit(1)
+		else:
+			logging.error(f"Unknown key(s) in config file. Promotion {promotion_name} contains keys: {str(set(keys).difference(promotion_keys))[1 : -1]}. Please update config file at {config_path}.")
+			sys.exit(1)
+	else:
+		logging.error(f"Unexpected format of config file. Promotion {promotion_name} is expected to be type dictionary, but is type {type(promotion)}. Please update config file at {config_path}.")
+		sys.exit(1)
+	if not ("promote_to" in promotion):
+		logging.error(f"Promotion {promotion_name} is missing required key \"promote_to\" in config file. Please update config file at {config_path}")
+		sys.exit(1)
+
+def check_config_custom_item(custom_item, name, promotion, config_path):
+	custom_items_keys = {"promote_from", "promote_to", "days_in_catalog"}
+	if isinstance(custom_item, dict):
+		keys = custom_item.keys()
+		if set(keys).issubset(custom_items_keys):
+			for key in keys:
+				if key in ["promote_from", "promote_to"]:
+					if not isinstance(custom_item[key], list):
+						logging.error(f"Unexpected format of config file. {key} in custom item {name} in promotion {promotion} is expected to be type list but is type {type(custom_item[key])}. Please update config file at {config_path}")
+						sys.exit(1)
+					for el in custom_item[key]:
+						if not isinstance(el, str):
+							logging.error(f"Unexpected format of config file. All elements of {key} in custom item {name} in promotion {promotion} should be type string, but the element {el} is type {type(el)}. Please update config file at {config_path}")
+							sys.exit(1)
+				elif not isinstance(custom_item[key], int):
+					logging.error(f"Unexpected format of config file. {key} in custom item {name} in promotion {promotion} is expected to be type int but is type {type(custom_item[key])}. Please update config file.")
+					sys.exit(1)
+		else:
+			logging.error(f"Unknown key(s) in config file. Custom item {name} in promotion {promotion} contains keys: {str(set(keys).difference(custom_items_keys))[1 : -1]}. Please update config file at {config_path}.")
+			sys.exit(1)
+	else:
+		logging.error(f"Unexpected format of config file. Custom item {name} in promotion {promotion} is expected to be type dictionary, but is type {type(custom_item)}. Please update config file at {config_path}.")
+		sys.exit(1)
+
+def check_config_selection(selection, i, config_path):
+	selection_keys = {"type", "key", "values"}
+	if isinstance(selection, dict):
+		keys = selection.keys()
+		if set(keys).issubset(selection_keys):
+			for key in keys:
+				if key in ["type", "key"]:
+					if (not isinstance(selection[key], str)):
+						logging.error(f"Unexpected format of config file. {key} in selection {i} is expected to be type str but is type {type(selection[key])}. Please update config file at {config_path}")
+						sys.exit(1)
+				elif (not isinstance(selection[key], list)):
+					logging.error(f"Unexpected format of config file. {key} in selection {i} is expected to be type list but is type {type(selection[key])}. Please update config file at {config_path}")
+					sys.exit(1)
+		else:
+			logging.error(f"Unknown key(s) in config file. Selection {i} contains keys: {str(set(selection.keys()).difference(selection_keys))[1 : -1]}. Please update config file at {config_path}.")
+			sys.exit(1)
+	else:
+		logging.error(f"Unexpected format of config file. Selection {i} is expected to be type dictionary, but is type {type(selection)}. Please update config file at {config_path}.")
+		sys.exit(1)
+	if "type" in selection:
+		match selection["type"]:
+			case "inclusion":
+				if "values" not in selection or len(selection["values"]) < 1:
+					logging.warning(f"Selection {i} type set to inclusion but no list of items defined in {config_path}. No items will be considered.")
+			case "exclusion":
+				if "values" not in selection or len(selection["values"]) < 1:
+					logging.warning(f"Selection {i} type set to exclusion but no list of items defined in {config_path}. All items will be considered.")
+			case _:
+				logging.error("Selection {i} type set incorrectly in {config_path}. Selection type must be \"inclusion\" or \"exclusion\", but was set to {selection['type']}.")
+				sys.exit(1)
+	# default values
+	if not "type" in selection:
+		selection["type"] = "inclusion"
+	if not "key" in selection:
+		selection["key"] = "name"
+	if not "values" in selection:
+		selection["values"] = []
+
+# ----------------------------------------
+# 			Promotions
+# ----------------------------------------
+
 def print_promotions(config, config_path):
 	promotion_strings = []
 	from_strings = []
@@ -200,21 +332,6 @@ def get_promotion_info(promotion, promotions, config, config_path):
 		# error: catalog has no promotions
 		logging.error(f'Promotion "{promotion}" improperly defined! Which catalog(s) promotion "{promotion}" promotes to is undefined. Promotions can be configured in {config_path}. Use --list to see valid catalogs to promote.')
 		sys.exit(1)
-
-def check_selection_specified_correctly(config, config_path):
-	if config and "selection" in config:
-		if "type" in config["selection"]:
-			if config["selection"]["type"] == "inclusion":
-				if "items" not in config["selection"] or type(config["selection"]["items"]) != list or len(config["selection"]["items"]) < 1:
-					logging.warning(f"Selection type set to inclusion but no list of items defined in {config_path}. No items will be considered.")
-			elif config["selection"]["type"] == "exclusion":
-				if "items" not in config["selection"] or type(config["selection"]["items"]) != list or len(config["selection"]["items"]) < 1:
-					logging.warning(f"Selection type set to exclusion but no list of items defined in {config_path}. All items will be considered.")
-			elif config["selection"]["type"] != "all":
-				logging.error(f'Selection type set incorrectly in {config_path}. Selection type must be "inclusion", "exclusion", or "all", but was set to {config["selection"]["type"]}.')
-				sys.exit(1)
-		else:
-			logging.warning(f"Selection key found in {config_path}, but no selection type found. All items will be considered.")
 
 # ----------------------------------------
 # 					Slack
@@ -356,8 +473,9 @@ def prep_all_promotions(config, munki_path, config_path):
 						# prep individual pkginfo for promotion
 						for promotion in config["promotions"]:
 							promote_to, promote_from, days, custom_items = get_promotion_info(promotion, promotions, config, config_path)
-							item_name, item_version, item_promotion, custom_promote_to = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
-							if item_name and check_selection(config, item_name): # would be None if not eligible for promotion
+							is_eligable, item_promo_info = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
+							if is_eligable and check_selections(config, pkginfo): 
+								item_name, item_version, item_promotion, custom_promote_to = item_promo_info
 								if not (promotion in names):
 									# first of this promotion type
 									names[promotion] = []
@@ -422,8 +540,9 @@ def prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items,
 					# load file
 					pkginfo = plistlib.load(fp, fmt=None)
 					# prep individual pkginfo for promotion
-					item_name, item_version, item_promotion, custom_promote_to = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
-					if item_name and check_selection(config, item_name): # would be None if not eligible for promotion
+					is_eligable, item_promo_info = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
+					if is_eligable and check_selections(config, pkginfo): 
+						item_name, item_version, item_promotion, custom_promote_to = item_promo_info
 						if custom_promote_to:
 							if "supported_architectures" in pkginfo:
 								custom_item_descriptions["names"].append(item_name + f" ({', '.join(pkginfo['supported_architectures'])})")
@@ -490,10 +609,10 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 			item["catalogs"] = promote_to
 			item["_metadata"]["munki-promoter_edit_date"] = today
 			if changed_promote_to:
-				return item_name, item_version, (item_path, item), promote_to
+				return True, (item_name, item_version, (item_path, item), promote_to)
 			else:
-				return item_name, item_version, (item_path, item), None
-	return None, None, None, None
+				return True, (item_name, item_version, (item_path, item), None)
+	return False, None
 
 def promote_items(preped_promotions):
 	for item_path, item in preped_promotions:
@@ -564,7 +683,7 @@ def prep_pkgsinfo_edit_date(munki_path, config, overwrite=False, promote_from=No
 					pkginfo = plistlib.load(fp, fmt=None)
 					# prep individual pkginfo for promotion
 					item_name, item = prep_item_edit_date(pkginfo, file, overwrite, promote_from, promote_from_days, custom_items)
-					if item_name and check_selection(config, item_name): # would be None if not eligible for promotion
+					if item_name and check_selections(config, pkginfo): 
 						names.append(item_name)
 						changes.append(item)
 				except plistlib.InvalidFileException as e:
@@ -610,17 +729,34 @@ def prep_item_edit_date(item, item_path, overwrite, promote_from, promote_from_d
 			return item_name, (item_path, item)
 	return None, None
 
-def check_selection(config, item_name):
-	if config and "selection" in config and "type" in config["selection"]:
-		if config["selection"]["type"] == "inclusion":
-			if "items" not in config["selection"] or type(config["selection"]["items"]) != list:
+def check_selections(config, item):
+	result = True
+	if "selections" in config:
+		for selection in config["selections"]:
+			if not check_selection(selection, item):
 				return False
-			return item_name in config["selection"]["items"]
-		elif config["selection"]["type"] == "exclusion":
-			if "items" not in config["selection"] or type(config["selection"]["items"]) != list:
-				return True
-			return item_name not in config["selection"]["items"]
 	return True
+
+def check_selection(selection, item):
+	key = selection["key"]
+	if selection["type"] == "inclusion":
+		if key in item:
+			return item[key] in selection["values"]
+		elif "_metadata" in item and key in item["_metadata"]:
+			return item["_metadata"][key] in selection["values"]
+		# key not in item
+		return False
+	elif selection["type"] == "exclusion":
+		if key in item:
+			return not (item[key] in selection["values"])
+		elif "_metadata" in item and key in item["_metadata"]:
+			return not (item["_metadata"][key] in selection["values"])
+		# key not in item
+		return True
+	# wrong type
+	logging.error(f"Encountered invalid type {selection["type"]} in selection.")
+	sys.exit(1)
+
 
 # ----------------------------------------
 #              User input
@@ -648,7 +784,7 @@ def process_args():
 	parser.add_argument('-l', '--list', action='store_true', dest='list',
 						help='Prints the list of possible promotions.')
 	parser.add_argument('-m', '--munki', dest='munki_path', default=MUNKI_PATH,
-						help=f'Optional path to the munki pkginfo directory, defaults to {MUNKI_PATH}.')
+						help=f'Optional path to the munki pkginfo directory, defaults to {MUNKI_PATH}')
 	parser.add_argument('--yaml', '-y', dest='config_file',
 					  help=f'Optional path to the configuration yaml file. Defaults to config.yml if not set. If config.yml does not exist, default configuration will be used.')
 	parser.add_argument('--slack', '-s', dest='slack_url',
@@ -684,9 +820,9 @@ def main():
 	setup_logging()
 	promotion, show_list, munki_path, config_path, is_config_specified, slack_url, md_path, auto, reset_edit, set_edit, promote_from_days = process_args()
 	config = get_config(config_path, is_config_specified)
+	check_config(config, config_path)
 
 	if reset_edit or set_edit or promote_from_days:
-		check_selection_specified_correctly(config, config_path)
 		if reset_edit:
 			logging.info('Reset the last edited day of all items to today.')
 			names, preped_changes = prep_set_edit_date(munki_path, config, overwrite=True)
@@ -716,7 +852,6 @@ def main():
 		print_promotions(config, config_path)
 
 	elif promotion:
-		check_selection_specified_correctly(config, config_path)
 		names, versions, custom_item_descriptions, preped_promotions, promote_to = prep_single_promotion(promotion, config, munki_path, config_path)
 		if names:
 			s = describe_promotion(promotion, promote_to, names, versions, custom_item_descriptions)
@@ -737,7 +872,6 @@ def main():
 			logging.info("No items need to be promoted.")
 
 	else:
-		check_selection_specified_correctly(config, config_path)
 		names_dict, versions_dict, custom_item_descriptions_dict, preped_promotions, promote_tos = prep_all_promotions(config, munki_path, config_path)
 		if len(names_dict) > 0:
 			s = ""
