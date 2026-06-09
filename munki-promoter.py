@@ -130,6 +130,7 @@ def get_config(config_path, is_config_specified) -> dict:
 			return DEFAULT_CONFIG
 
 def check_config(config, config_path):
+	new_selections = None
 	if isinstance(config, dict):
 		for key in config:
 			match key:
@@ -151,6 +152,8 @@ def check_config(config, config_path):
 					else:
 						logging.error(f"Unexpected format of config file. {key} is expected to be type dictionary but is type {type(config[key])}. Please update config file at {config_path}")
 						sys.exit(1)
+				case "selection":
+					new_selections = handle_selection_depricated(config, config_path)
 				case _:
 					logging.error(f"Unknown key(s) in config file: {str(set(config.keys()).difference(top_level_keys))[1 : -1]}. Please update config file at {config_path}")
 					sys.exit(1)
@@ -160,6 +163,9 @@ def check_config(config, config_path):
 	if not ("promotions" in config):
 		logging.error(f"Missing required key \"promotions\" in config file. Please update config file at {config_path}")
 		sys.exit(1)
+	if new_selections:
+		config["selections"] = new_selections
+
 
 def check_config_promotion(promotion, promotion_name, config_path):
 	promotion_keys = {"promote_from", "promote_to", "custom_items", "days_in_catalog"}
@@ -256,6 +262,26 @@ def check_config_selection(selection, i, config_path):
 		selection["key"] = "name"
 	if not "values" in selection:
 		selection["values"] = []
+
+def handle_selection_depricated(config, config_path):
+	selection = config["selection"]
+	if "selections" in config:
+		logging.error(f"`selection` key in config is depricated and conflicts with new Selections key. Please remove it from {config_path}")
+		sys.exit(1)
+	if "type" in selection and selection["type"] in ["inclusion", "exclusion", "all"]:
+		if selection["type"] == "all":
+			logging.warning(f"`selection` key in config is depricated. Please remove it from {config_path}. There will be no change in behaviour due to the selection type being all.")
+		elif "items" not in selection:
+			selection["items"] = []
+		items = ""
+		for item in selection["items"]:
+			items += f"      - \"{item}\"\n"
+		logging.warning(f"`selection` key in config is depricated. Please update to using `selections` soon in {config_path}\nTo keep your current selection with the new key please replace it with the following:\nselections: \n  - type: \"{selection['type']}\"\n    key: \"name\"\n    values: \n{items}")
+		return [{"type": selection["type"], "key": "name", "values": selection["items"]}]
+	else:
+		logging.error(f"`selection` key in config is depricated. Please use new `selections` key instead in {config_path}")
+		sys.exit(1)
+
 
 # ----------------------------------------
 # 			Promotions
