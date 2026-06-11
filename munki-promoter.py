@@ -73,7 +73,7 @@ def describe_promotion(promotion, promote_to, names, versions, custom_item_descr
 	if len(names) > 0:
 		names = white_space_pad_strings(names)
 		for i, name in enumerate(names):
-			result += (f"{name} - {versions[i]}\n")
+			result += f"{name} - {versions[i]}\n"
 	if len(custom_item_descriptions['names']) > 0:
 		custom_names = white_space_pad_strings(custom_item_descriptions['names'])
 		custom_versions = white_space_pad_strings(custom_item_descriptions['versions'])
@@ -97,7 +97,7 @@ def get_config(config_path, is_config_specified) -> dict:
 				logging.error(f"Configuration file {config_path} is not present.")
 				sys.exit(1)
 			else:
-				# file was not user provided -> warning: use defauls
+				# file was not user provided -> warning: use defaults
 				logging.warning("No configuration file is present. Will continue with default settings.")
 				return DEFAULT_CONFIG
 		# import success AND file exists
@@ -110,7 +110,7 @@ def get_config(config_path, is_config_specified) -> dict:
 				result = yaml.safe_load(config_yaml)
 				logging.info(f"Successfully loaded {config_path}!")
 				return result
-			except yaml.YAMLError as e:
+			except yaml.YAMLError:
 				logging.error(f"Unable to load {config_path}")
 				sys.exit(1)
 	except ModuleNotFoundError as e:
@@ -142,7 +142,7 @@ def check_config(config, config_path):
 						logging.error(f"Unexpected format of config file. {key} is expected to be type dictionary but is type {type(config[key])}. Please update config file at {config_path}")
 						sys.exit(1)
 				case "default_days_in_catalog":
-					if (not isinstance(config[key], int)):
+					if not isinstance(config[key], int):
 						logging.error(f"Unexpected format of config file. {key} is expected to be type int but is type {type(config[key])}. Please update config file at {config_path}")
 						sys.exit(1)
 				case "selections":
@@ -153,12 +153,12 @@ def check_config(config, config_path):
 						logging.error(f"Unexpected format of config file. {key} is expected to be type dictionary but is type {type(config[key])}. Please update config file at {config_path}")
 						sys.exit(1)
 				case "selection":
-					new_selections = handle_selection_depricated(config, config_path)
+					new_selections = handle_selection_deprecated(config, config_path)
 				case _:
 					logging.error(f"Unknown key(s) in config file: {str(set(config.keys()).difference(top_level_keys))[1 : -1]}. Please update config file at {config_path}")
 					sys.exit(1)
 	else:
-		logging.error(f"Unexpected format of config file. Expected file in the format of dictionary, but indtead file is formatted as {type(config)}. Please update config file at {config_path}")
+		logging.error(f"Unexpected format of config file. Expected file in the format of dictionary, but instead file is formatted as {type(config)}. Please update config file at {config_path}")
 		sys.exit(1)
 	if not ("promotions" in config):
 		logging.error(f"Missing required key \"promotions\" in config file. Please update config file at {config_path}")
@@ -232,10 +232,10 @@ def check_config_selection(selection, i, config_path):
 		if set(keys).issubset(selection_keys):
 			for key in keys:
 				if key in ["type", "key"]:
-					if (not isinstance(selection[key], str)):
+					if not isinstance(selection[key], str):
 						logging.error(f"Unexpected format of config file. {key} in selection {i} is expected to be type str but is type {type(selection[key])}. Please update config file at {config_path}")
 						sys.exit(1)
-				elif (not isinstance(selection[key], list)):
+				elif not isinstance(selection[key], list):
 					logging.error(f"Unexpected format of config file. {key} in selection {i} is expected to be type list but is type {type(selection[key])}. Please update config file at {config_path}")
 					sys.exit(1)
 		else:
@@ -263,23 +263,23 @@ def check_config_selection(selection, i, config_path):
 	if not "values" in selection:
 		selection["values"] = []
 
-def handle_selection_depricated(config, config_path):
+def handle_selection_deprecated(config, config_path):
 	selection = config["selection"]
 	if "selections" in config:
-		logging.error(f"`selection` key in config is depricated and conflicts with new Selections key. Please remove it from {config_path}")
+		logging.error(f"`selection` key in config is deprecated and conflicts with new Selections key. Please remove it from {config_path}")
 		sys.exit(1)
 	if "type" in selection and selection["type"] in ["inclusion", "exclusion", "all"]:
 		if selection["type"] == "all":
-			logging.warning(f"`selection` key in config is depricated. Please remove it from {config_path}. There will be no change in behaviour due to the selection type being all.")
+			logging.warning(f"`selection` key in config is deprecated. Please remove it from {config_path}. There will be no change in behaviour due to the selection type being all.")
 		elif "items" not in selection:
 			selection["items"] = []
 		items = ""
 		for item in selection["items"]:
 			items += f"      - \"{item}\"\n"
-		logging.warning(f"`selection` key in config is depricated. Please update to using `selections` soon in {config_path}\nTo keep your current selection with the new key please replace it with the following:\nselections: \n  - type: \"{selection['type']}\"\n    key: \"name\"\n    values: \n{items}")
+		logging.warning(f"`selection` key in config is deprecated. Please update to using `selections` soon in {config_path}\nTo keep your current selection with the new key please replace it with the following:\nselections: \n  - type: \"{selection['type']}\"\n    key: \"name\"\n    values: \n{items}")
 		return [{"type": selection["type"], "key": "name", "values": selection["items"]}]
 	else:
-		logging.error(f"`selection` key in config is depricated. Please use new `selections` key instead in {config_path}")
+		logging.error(f"`selection` key in config is deprecated. Please use new `selections` key instead in {config_path}")
 		sys.exit(1)
 
 
@@ -375,8 +375,7 @@ def send_slack_webhook(slack_url, slack_blocks):
 	headers = {'Content-Type': 'application/json'}
 	req = urllib.request.Request(slack_url, data, headers)
 	resp = urllib.request.urlopen(req, context=ssl.create_default_context(cafile=certifi.where()))  # nosec B310
-	response = resp.read()
-	if(resp.status == 200):
+	if resp.status == 200:
 		logging.info("Slack webhook sent successfully!")
 	else:
 		logging.error(f"Slack webhook could not be sent. HTTP response {resp.status}.")
@@ -421,7 +420,7 @@ def setup_slack_blocks():
 	try:
 		global certifi
 		import certifi
-	except ImportError as e:
+	except ImportError:
 			logging.error(f"Certifi library could not be loaded.")
 			logging.error("You can install the necessary dependencies with 'python3 -m pip install -r requirements.txt'")
 			sys.exit(1)
@@ -437,7 +436,7 @@ def write_md_file(md_file, md):
 		f.write(md)
 		f.close()
 		logging.info("Markdown file successfully updated.")
-	except Exception as e:
+	except:
 		logging.error(f"Unable to write to {md_file}")
 		sys.exit(1)
 
@@ -499,8 +498,8 @@ def prep_all_promotions(config, munki_path, config_path):
 						# prep individual pkginfo for promotion
 						for promotion in config["promotions"]:
 							promote_to, promote_from, days, custom_items = get_promotion_info(promotion, promotions, config, config_path)
-							is_eligable, item_promo_info = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
-							if is_eligable and check_selections(config, pkginfo): 
+							is_eligible, item_promo_info = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
+							if is_eligible and check_selections(config, pkginfo):
 								item_name, item_version, item_promotion, custom_promote_to = item_promo_info
 								if not (promotion in names):
 									# first of this promotion type
@@ -566,8 +565,8 @@ def prep_pkgsinfo_single_promotion(promote_to, promote_from, days, custom_items,
 					# load file
 					pkginfo = plistlib.load(fp, fmt=None)
 					# prep individual pkginfo for promotion
-					is_eligable, item_promo_info = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
-					if is_eligable and check_selections(config, pkginfo): 
+					is_eligible, item_promo_info = prep_item_for_promotion(pkginfo, promote_to, promote_from, days, custom_items, file)
+					if is_eligible and check_selections(config, pkginfo):
 						item_name, item_version, item_promotion, custom_promote_to = item_promo_info
 						if custom_promote_to:
 							if "supported_architectures" in pkginfo:
@@ -599,7 +598,7 @@ def prep_item_for_promotion(item, promote_to, promote_from, days, custom_items, 
 		item_name = item["name"]
 		item_version = item["version"]
 		item_catalogs = item["catalogs"]
-	except Exception as e:
+	except:
 		logging.error(f"File {item_path} is missing expected keys.", exc_info=True)
 		sys.exit(1)
 	# check if custom item
@@ -674,9 +673,9 @@ def try_add_metadata(item_path, item):
 				plistlib.dump(item, fp, fmt=plistlib.FMT_XML)
 				# remove any excess of old file
 				fp.truncate()
-			except Exception as e:
+			except:
 				logging.warning(f"File {item_path} is missing metadata and this file can not be written to.", exc_info=True)
-	except OSError as e:
+	except OSError:
 			logging.warning(f"File {item_path} is missing metadata and this file can not be written to.", exc_info=True)
 
 def prep_set_edit_date(munki_path, config, overwrite=False, promotion=None, promote_from_days=None, config_path=None):
@@ -727,7 +726,7 @@ def prep_item_edit_date(item, item_path, overwrite, promote_from, promote_from_d
 		item_name = item["name"]
 		if promote_from:
 			item_catalogs = item["catalogs"]
-	except Exception as e:
+	except:
 		logging.error(f"File {item_path} is missing expected keys.", exc_info=True)
 		sys.exit(1)
 	# if for a specific promotion, check if custom item
@@ -756,7 +755,6 @@ def prep_item_edit_date(item, item_path, overwrite, promote_from, promote_from_d
 	return None, None
 
 def check_selections(config, item):
-	result = True
 	if "selections" in config:
 		for selection in config["selections"]:
 			if not check_selection(selection, item):
@@ -780,7 +778,7 @@ def check_selection(selection, item):
 		# key not in item
 		return True
 	# wrong type
-	logging.error(f"Encountered invalid type {selection["type"]} in selection.")
+	logging.error(f"Encountered invalid type {selection['type']} in selection.")
 	sys.exit(1)
 
 
@@ -793,7 +791,7 @@ def user_confirm(s):
 	while True:
 		try:
 			return _BOOLMAP[str(input()).lower()]
-		except Exception as e:
+		except:
 			print('Please respond with \'y\' or \'n\'.\n')
 
 # ----------------------------------------
@@ -858,7 +856,7 @@ def main():
 		elif promote_from_days:
 			if not promotion:
 				logging.error("Command line argument `days-before-promote-from` must be accompanied by command line argument `promotion` to run, but this is not the case.")
-				logging.error("For all items that meet the `promote_from` conditions for the given promotion, if the last edit date is unkown but the creation date is known, the last edit date is calculated under the assumption that it took n days to be promoted to the current catalogue(s), where n is set by this `days-before-promote-from` argument.")
+				logging.error("For all items that meet the `promote_from` conditions for the given promotion, if the last edit date is unknown but the creation date is known, the last edit date is calculated under the assumption that it took n days to be promoted to the current catalogue(s), where n is set by this `days-before-promote-from` argument.")
 				sys.exit(1)
 			else:
 				logging.info(f'Setting all missing last edited days for items that meet the `promote_from` conditions for "{promotion}", under the assumption that it took {promote_from_days} days to be promoted to the current catalog(s).')
